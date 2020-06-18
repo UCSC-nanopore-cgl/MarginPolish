@@ -2246,7 +2246,7 @@ stList *alignConsensusAndTruthRLEWithKmerAnchors(RleString *consensusStr, RleStr
     // quick fail
     int64_t minLength = (consensusStr->length < truthStr->length ? consensusStr : truthStr)->length;
     double apRatio = 1.0 * stList_length(anchorPairs) / minLength;
-    if (apRatio < .5) {
+    if (apRatio < .2) {
         char *logIdentifer = getLogIdentifier();
         st_logInfo(" %s got %"PRId64" anchor pairs for min seq len %"PRId64" (%f), not attempting alignment.\n",
                 logIdentifer, stList_length(anchorPairs), minLength, apRatio);

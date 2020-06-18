@@ -506,7 +506,8 @@ int main(int argc, char *argv[]) {
 
         // do the final read filtering
         assignFilteredReadsToHaplotypesInParts(bamChunk, bg, hap1, hap2, rleReference, filteredReads,
-                filteredAlignments, readsBelongingToHap1, readsBelongingToHap2, params, 32, logIdentifier);
+                filteredAlignments, readsBelongingToHap1, readsBelongingToHap2, params, params->polishParams->maxDepth,
+                logIdentifier);
         /* >>> TODO end code to attempt to phase filtered reads */
 
 

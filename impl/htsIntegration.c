@@ -168,7 +168,7 @@ void storeReadDepthInformation(stList *depthList, int64_t startPos, int64_t endP
     int64_t bucketSize = getReadDepthInfoBucketSize(chunkSize);
     startPos = startPos/bucketSize;
     endPos = endPos/bucketSize;
-    while (stList_length(depthList) < endPos) {
+    while (stList_length(depthList) <= endPos) {
         stList_append(depthList, (void*) 0);
     }
     for (int64_t pos = startPos; pos < endPos; pos++) {
@@ -415,6 +415,13 @@ uint32_t convertToReadsAndAlignmentsWithFiltered(BamChunk *bamChunk, RleString *
     char *bamFile = bamChunk->parent->bamFile;
     char *contig = bamChunk->refSeqName;
     uint32_t savedAlignments = 0;
+    double randomDiscardChance = 1.0;
+    if (bamChunk->estimatedDepth > 8 * polishParams->maxDepth) {
+        char *logIdentifier = getLogIdentifier();
+        randomDiscardChance = 8.0 * polishParams->maxDepth / bamChunk->estimatedDepth;
+        st_logInfo(" %s Randomly removing reads from excessively deep (%"PRId64"/%"PRId64") chunk with chance %f\n",
+                logIdentifier, bamChunk->estimatedDepth, polishParams->maxDepth, 1.0 - randomDiscardChance);
+    }
 
     // prep for index (not entirely sure what all this does.  see samtools/sam_view.c
     int filter_state = ALL, filter_op = 0;
@@ -465,6 +472,8 @@ uint32_t convertToReadsAndAlignmentsWithFiltered(BamChunk *bamChunk, RleString *
             continue; //secondary
         if (!bamChunk->parent->params->includeSupplementaryAlignments && (aln->core.flag & (uint16_t) 0x800) != 0)
             continue; //supplementary
+        if (st_random() > randomDiscardChance)
+            continue; // chunk is too deep
         if (aln->core.qual < bamChunk->parent->params->filterAlignmentsWithMapQBelowThisThreshold) { //low mapping quality
             if (filteredReads == NULL) continue;
             filtered = TRUE;
