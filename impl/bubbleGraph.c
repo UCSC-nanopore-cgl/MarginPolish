@@ -1254,8 +1254,8 @@ void bubbleGraph_logPhasedBubbleGraph(BubbleGraph *bg, stRPHmm *hmm, stList *pat
                 bubble_calculateStrandSkews(b, strandSkews);
 
                 for (uint64_t j = 0; j < b->alleleNo; j++) {
-                    st_logDebug("\t>>Allele %i (ref allele: %s)\t strand-skew: %f \t", (int) j,
-                                rleString_eq(b->refAllele, b->alleles[j]) ? "True" : "False",
+                    st_logDebug("\t>>Allele %i (ref allele: %s)\t strand-skew: %+.5f \t", (int) j,
+                                rleString_eq(b->refAllele, b->alleles[j]) ? "True " : "False",
                                 (float) strandSkews[j]);
                     rleString_print(b->alleles[j], stderr);
                     char *expandedAllele = rleString_expand(b->alleles[j]);
@@ -1280,18 +1280,18 @@ void bubbleGraph_logPhasedBubbleGraph(BubbleGraph *bg, stRPHmm *hmm, stList *pat
                         stProfileSeq *pSeq = stHash_search(readsToPSeqs, s->read);
                         assert(pSeq != NULL);
                         if (stSet_search(k == 0 ? gF->reads1 : gF->reads2, pSeq) != NULL) {
-                            st_logDebug("\t\t>>Partition %i, read %i:\t strand %i\t ", (int) k + 1, (int) l++,
+                            st_logDebug("\t\t>>Partition %i, read %3i:\t strand %i\t ", (int) k + 1, (int) l++,
                                         (int) s->read->forwardStrand);
 
                             for (uint64_t m = 0; m < b->alleleNo; m++) {
-                                st_logDebug("%f\t", b->alleleReadSupports[m * b->readNo + j]);
+                                st_logDebug("%+8.5f\t", b->alleleReadSupports[m * b->readNo + j]);
                                 supports[m] += b->alleleReadSupports[m * b->readNo + j];
                             }
 
                             RleString *readSubstring = bamChunkReadSubstring_getRleString(s);
                             //st_logDebug("%s\n", readSubstring->rleString);
                             rleString_print(readSubstring, stderr);
-                            st_logDebug(" qv: %f\n", (float) s->qualValue);
+                            st_logDebug(" qv: %8.5f\n", (float) s->qualValue);
                             rleString_destruct(readSubstring);
                         }
                     }
@@ -1299,7 +1299,7 @@ void bubbleGraph_logPhasedBubbleGraph(BubbleGraph *bg, stRPHmm *hmm, stList *pat
                     st_logDebug("\t\tCombined allele partition supports:\n");
                     st_logDebug("\t\t\t");
                     for (uint64_t j = 0; j < b->alleleNo; j++) {
-                        st_logDebug("%f\t", supports[j]);
+                        st_logDebug("%8.5f\t", supports[j]);
                     }
                     st_logDebug("\n");
 
@@ -1318,6 +1318,85 @@ void bubbleGraph_logPhasedBubbleGraph(BubbleGraph *bg, stRPHmm *hmm, stList *pat
         st_logDebug(">>Fraction of bubbles skewed %f (of %i total)\n",
                     (float) bubbleGraph_skewedBubbles(bg, readsToPSeqs, gF), (int) bg->bubbleNo);
     }
+}
+
+
+/*
+ * Phasing of bubble graphs
+ */
+
+void bubbleGraph_saveBubblePhasingInfo(BamChunk *bamChunk, BubbleGraph *bg, stHash *readsToPSeqs, stGenomeFragment *gF,
+        FILE *out) {
+    fprintf(out, " \"primary\": [");
+    bool firstBubble = TRUE;
+    for (uint64_t i = 0; i < gF->length; i++) {
+
+        // bubble and hap info
+        Bubble *b = &bg->bubbles[gF->refStart + i];
+        RleString *hap1 = b->alleles[gF->haplotypeString1[i]];
+        RleString *hap2 = b->alleles[gF->haplotypeString2[i]];
+
+        // we only care about hets
+        if (hap1 == hap2) continue;
+
+        if (firstBubble) {
+            fprintf(out, "\n  {\n");
+            firstBubble = FALSE;
+        } else {
+            fprintf(out, ",\n  {\n");
+        }
+
+        // bubble info
+        int64_t trueRefStartPos = bamChunk->chunkBoundaryStart + b->refStart;
+        double strandSkew = bubble_phasedStrandSkew(b, readsToPSeqs, gF);
+        fprintf(out, "   \"refPos\": %"PRId64",\n", trueRefStartPos);
+        fprintf(out, "   \"strandSkew\": %f,\n", strandSkew);
+
+        // read info
+        int64_t hap1AlleleNo = gF->haplotypeString1[i];
+        int64_t hap2AlleleNo = gF->haplotypeString2[i];
+        fprintf(out, "   \"reads\": [");
+        for (uint64_t j = 0; j < b->readNo; j++) {
+            if (j == 0) {
+                fprintf(out, "\n    {\n");
+            } else {
+                fprintf(out, ",\n    {\n");
+            }
+            BamChunkReadSubstring *bcrSubstring = b->reads[j];
+            stProfileSeq *pSeq = stHash_search(readsToPSeqs, bcrSubstring->read);
+
+            // read info
+            char* readName = bcrSubstring->read->readName;
+            double qualVal = bcrSubstring->qualValue;
+            fprintf(out, "     \"name\": \"%s\",\n", readName);
+            fprintf(out, "     \"qual\": %f,\n", qualVal);
+
+            bool inHap1 = FALSE;
+            bool inHap2 = FALSE;
+            double readHapSupport = DBL_MIN;
+
+            if (stSet_search(gF->reads1, pSeq) != NULL) {
+                readHapSupport = b->alleleReadSupports[hap1AlleleNo * b->readNo + j];
+                inHap1 = TRUE;
+            }
+
+            if (stSet_search(gF->reads2, pSeq) != NULL) {
+                readHapSupport = b->alleleReadSupports[hap2AlleleNo * b->readNo + j];
+                inHap2 = TRUE;
+            }
+
+            if (inHap1 == inHap2) {
+                fprintf(out, "     \"hap\": %d,\n", 0);
+            } else {
+                fprintf(out, "     \"hap\": %d,\n", inHap1 ? 1 : 2);
+                fprintf(out, "     \"hapSupport\": %f\n", readHapSupport);
+            }
+            fprintf(out, "    }");
+        }
+        fprintf(out, "\n   ]");
+        fprintf(out, "\n  }");
+    }
+    fprintf(out, "\n ]");
 }
 
 stSet *filterReadsByCoverageDepth2(stList *profileSeqs, Params *params) {

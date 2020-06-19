@@ -1293,6 +1293,12 @@ double binomialPValue(int64_t n, int64_t k);
 uint128_t bionomialCoefficient(int64_t n, int64_t k);
 
 /*
+ * For tracking Bubble Graph stuff
+ */
+void bubbleGraph_saveBubblePhasingInfo(BamChunk *bamChunk, BubbleGraph *bg, stHash *readsToPSeqs, stGenomeFragment *gF,
+        FILE *out);
+
+/*
  * For logging while multithreading
  */
 char *getLogIdentifier();
@@ -1405,11 +1411,14 @@ stSet *bamChunkRead_to_readName(stSet *bamChunkReads);
 stList *copyListOfIntTuples(stList *toCopy);
 void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *hap2, RleString *rleReference,
                                      stList *filteredReads, stList *filteredAlignments,
-                                     stSet *hap1Reads, stSet *hap2Reads, Params *params);
+                                     stSet *hap1Reads, stSet *hap2Reads, Params *params,
+                                     BamChunk *bamChunk, FILE *out);
 void assignFilteredReadsToHaplotypesInParts(BamChunk* bamChunk, BubbleGraph *bg, uint64_t *hap1, uint64_t *hap2,
 											RleString *rleReference, stList *reads, stList *alignments,
 											stSet *hap1Reads, stSet *hap2Reads,
 											Params *params, int64_t partSize, char *logIdentifier);
+void writePhasedReadInfoJSON(BamChunk *bamChunk, stList *primaryReads, stList *primaryAlignments, stList *filteredReads,
+                             stList *filteredAlignments, stSet *readsInHap1, stSet *readsInHap2, FILE *out);
 /*
  * HELEN Features
  */

@@ -493,7 +493,6 @@ int main(int argc, char *argv[]) {
                                                              readsBelongingToHap2, readsBelongingToHap1, params->polishParams);
         }
 
-
         /* <<< TODO begin code to attempt to phase filtered reads */
         for (int64_t bcrIdx = 0; bcrIdx < stList_length(reads); bcrIdx++) {
             BamChunkRead *bcr = stList_get(reads, bcrIdx);
@@ -504,10 +503,24 @@ int main(int argc, char *argv[]) {
             }
         }
 
+        // save info
+        char *chunkBubbleOutFilename = stString_print("%s.C%05"PRId64".%s-%"PRId64"-%"PRId64".phasingInfo.json",
+                                                      outputBase, chunkIdx,  bamChunk->refSeqName, bamChunk->chunkBoundaryStart, bamChunk->chunkBoundaryEnd);
+        st_logInfo(" %s Saving chunk phasing info to: %s\n", logIdentifier, chunkBubbleOutFilename);
+        FILE *chunkBubbleOut = fopen(chunkBubbleOutFilename, "w");
+        fprintf(chunkBubbleOut, "{\n");
+        bubbleGraph_saveBubblePhasingInfo(bamChunk, bg, readsToPSeqs, gf, chunkBubbleOut);
+
         // do the final read filtering
-        assignFilteredReadsToHaplotypesInParts(bamChunk, bg, hap1, hap2, rleReference, filteredReads,
-                filteredAlignments, readsBelongingToHap1, readsBelongingToHap2, params, params->polishParams->maxDepth,
-                logIdentifier);
+        assignFilteredReadsToHaplotypes(bg, hap1, hap2, rleReference, filteredReads, filteredAlignments,
+                readsBelongingToHap1, readsBelongingToHap2, params, bamChunk, chunkBubbleOut);
+
+        writePhasedReadInfoJSON(bamChunk, reads, alignments, filteredReads, filteredAlignments, readsBelongingToHap1,
+                                readsBelongingToHap2, chunkBubbleOut);
+
+        fprintf(chunkBubbleOut, "\n}\n");
+        fclose(chunkBubbleOut);
+        free(chunkBubbleOutFilename);
         /* >>> TODO end code to attempt to phase filtered reads */
 
 

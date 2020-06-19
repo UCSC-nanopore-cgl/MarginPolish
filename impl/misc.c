@@ -139,8 +139,8 @@ stList *copyListOfIntTuples(stList *toCopy) {
 }
 
 void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *hap2, RleString *rleReference,
-                                     stList *filteredReads, stList *filteredAlignments,
-                                     stSet *hap1Reads, stSet *hap2Reads, Params *params) {
+                                     stList *filteredReads, stList *filteredAlignments, stSet *hap1Reads,
+                                     stSet *hap2Reads, Params *params, BamChunk *bamChunk, FILE *out) {
     // quick fail
     int64_t length = stList_length(filteredReads);
     if (length == 0) return;
@@ -170,6 +170,11 @@ void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *
         return;
     }
 
+    //write output
+    if (out != NULL) {
+        fprintf(out, ",\n \"filtered\": [");
+    }
+
     // score reads based on alignment at het sites
     double *totalReadScore_hap1 = st_calloc(length, sizeof(double));
     double *totalReadScore_hap2 = st_calloc(length, sizeof(double));
@@ -180,6 +185,7 @@ void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *
     int64_t insertH1 = 0;
     int64_t insertH2 = 0;
     int64_t mismatch = 0;
+    bool firstBubble = TRUE;
     while (TRUE) {
         if (currAlign == NULL) break;
         int64_t currAlignPosHap1 = stIntTuple_get(currAlign, 0);
@@ -188,6 +194,18 @@ void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *
         if (posH1 < currAlignPosHap1) {
             insertH1++;
             PoaNode *insertNodeX = stList_get(filteredPoa_hap1->nodes, posH1);
+
+            if (out != NULL) {
+                if (firstBubble) {
+                    firstBubble = FALSE;
+                } else {
+                    fprintf(out, ",");
+                }
+                fprintf(out, "\n   {\n");
+                fprintf(out, "    \"refPos\": %"PRId64",\n", bamChunk->chunkBoundaryStart + (int) (posH1/2 + posH2/2));
+                fprintf(out, "    \"reads\": [");
+            }
+
             for (int64_t o = 0; o < stList_length(insertNodeX->observations); o++) {
                 PoaBaseObservation *observation = stList_get(insertNodeX->observations, o);
                 BamChunkRead *read = stList_get(filteredReads, observation->readNo);
@@ -196,6 +214,20 @@ void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *
                 } else {
                     totalReadScore_hap1[observation->readNo] -= observation->weight;
                 }
+
+                // write
+                if (out != NULL && read->rleRead->rleString[observation->offset]) {
+                    if (o != 0) fprintf(out, ",");
+                    fprintf(out, "\n     {\n");
+                    fprintf(out, "      \"name\": \"%s\",\n", read->readName);
+                    fprintf(out, "      \"hap\": 1,\n");
+                    fprintf(out, "      \"hapSupport\": %f\n", observation->weight);
+                    fprintf(out, "     }");
+                }
+            }
+            if (out != NULL) {
+                fprintf(out, "    ]\n");
+                fprintf(out, "   }");
             }
             posH1++;
         }
@@ -203,6 +235,19 @@ void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *
         else if (posH2 < currAlignPosHap2) {
             insertH2++;
             PoaNode *insertNodeY = stList_get(filteredPoa_hap2->nodes, posH2);
+
+            // write
+            if (out != NULL) {
+                if (firstBubble) {
+                    fprintf(out, "\n   {\n");
+                    firstBubble = FALSE;
+                } else {
+                    fprintf(out, ",\n   {\n");
+                }
+                fprintf(out, "    \"refPos\": %"PRId64",\n", bamChunk->chunkBoundaryStart + (int) (posH1/2 + posH2/2));
+                fprintf(out, "    \"reads\": [");
+            }
+
             for (int64_t o = 0; o < stList_length(insertNodeY->observations); o++) {
                 PoaBaseObservation *observation = stList_get(insertNodeY->observations, o);
                 BamChunkRead *read = stList_get(filteredReads, observation->readNo);
@@ -211,6 +256,20 @@ void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *
                 } else {
                     totalReadScore_hap2[observation->readNo] -= observation->weight;
                 }
+
+                // write
+                if (out != NULL && read->rleRead->rleString[observation->offset]) {
+                    if (o != 0) fprintf(out, ",");
+                    fprintf(out, "\n     {\n");
+                    fprintf(out, "      \"name\": \"%s\",\n", read->readName);
+                    fprintf(out, "      \"hap\": 2,\n");
+                    fprintf(out, "      \"hapSupport\": %f\n", observation->weight);
+                    fprintf(out, "     }");
+                }
+            }
+            if (out != NULL) {
+                fprintf(out, "    ]\n");
+                fprintf(out, "   }");
             }
             posH2++;
         }
@@ -220,6 +279,19 @@ void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *
             PoaNode *matchNodeH2 = stList_get(filteredPoa_hap2->nodes, posH2);
             if (matchNodeH1->base != matchNodeH2->base) {
                 mismatch++;
+
+                // write
+                if (out != NULL) {
+                    if (firstBubble) {
+                        firstBubble = FALSE;
+                    } else {
+                        fprintf(out, ",");
+                    }
+                    fprintf(out, "\n   {\n");
+                    fprintf(out, "    \"refPos\": %"PRId64",\n", bamChunk->chunkBoundaryStart + (int) (posH1/2 + posH2/2));
+                    fprintf(out, "    \"reads\": [");
+                }
+
                 for (int64_t o = 0; o < stList_length(matchNodeH1->observations); o++) {
                     PoaBaseObservation *observation = stList_get(matchNodeH1->observations, o);
                     BamChunkRead *read = stList_get(filteredReads, observation->readNo);
@@ -227,6 +299,16 @@ void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *
                         totalReadScore_hap1[observation->readNo] += observation->weight;
                     } else {
                         totalReadScore_hap1[observation->readNo] -= observation->weight;
+                    }
+
+                    // write
+                    if (out != NULL && read->rleRead->rleString[observation->offset]) {
+                        if (o != 0) fprintf(out, ",");
+                        fprintf(out, "\n     {\n");
+                        fprintf(out, "      \"name\": \"%s\",\n", read->readName);
+                        fprintf(out, "      \"hap\": 1,\n");
+                        fprintf(out, "      \"hapSupport\": %f\n", observation->weight);
+                        fprintf(out, "     }");
                     }
                 }
                 for (int64_t o = 0; o < stList_length(matchNodeH2->observations); o++) {
@@ -237,6 +319,22 @@ void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *
                     } else {
                         totalReadScore_hap2[observation->readNo] -= observation->weight;
                     }
+
+                    // write
+                    if (out != NULL && read->rleRead->rleString[observation->offset]) {
+                        if (o != 0 || stList_length(matchNodeH1->observations) != 0) fprintf(out, ",");
+                        fprintf(out, "\n     {\n");
+                        fprintf(out, "      \"name\": \"%s\",\n", read->readName);
+                        fprintf(out, "      \"hap\": 2,\n");
+                        fprintf(out, "      \"hapSupport\": %f\n", observation->weight);
+                        fprintf(out, "     }");
+                    }
+                }
+
+                // write
+                if (out != NULL) {
+                    fprintf(out, "\n    ]\n");
+                    fprintf(out, "   }");
                 }
             }
             posH1++;
@@ -249,6 +347,11 @@ void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *
         }
     }
 
+    //write output
+    if (out != NULL) {
+        fprintf(out, "\n  ]");
+    }
+
     // get scores and save to appropriate sets
     int64_t totalNoScoreLength = 0;
     int64_t noScoreCount = 0;
@@ -256,15 +359,17 @@ void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *
     int64_t hap1Count = 0;
     int64_t hap2Count = 0;
     for (int64_t i = 0; i < length; i++) {
+        BamChunkRead *read = stList_get(filteredReads, i);
+
         if (totalReadScore_hap1[i] < totalReadScore_hap2[i]) {
-            stSet_insert(hap2Reads, stList_get(filteredReads, i));
+            stSet_insert(hap2Reads, read);
             hap1Count++;
         } else if (totalReadScore_hap1[i] > totalReadScore_hap2[i]) {
-            stSet_insert(hap1Reads, stList_get(filteredReads, i));
+            stSet_insert(hap1Reads, read);
             hap2Count++;
         } else {
             if (totalReadScore_hap1[i] == 0) {
-                totalNoScoreLength += ((BamChunkRead *) stList_get(filteredReads, i))->rleRead->nonRleLength;
+                totalNoScoreLength += read->rleRead->nonRleLength;
                 noScoreCount++;
             }
             unclassifiedCount++;
@@ -291,6 +396,67 @@ void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *
     poa_destruct(filteredPoa_hap1);
     poa_destruct(filteredPoa_hap2);
     free(logIdentifier);
+}
+
+void writePhasedReadInfoJSON(BamChunk *bamChunk, stList *primaryReads, stList *primaryAlignments, stList *filteredReads,
+        stList *filteredAlignments, stSet *readsInHap1, stSet *readsInHap2, FILE *out) {
+
+
+    fprintf(out, ",\n \"reads\": [");
+
+    // get scores and save to appropriate sets
+    for (int64_t i = 0; i < stList_length(primaryReads); i++) {
+        BamChunkRead *read = stList_get(primaryReads, i);
+        stList *alignment = stList_get(primaryAlignments, i);
+        stIntTuple *firstAlign = stList_get(alignment, 0);
+        stIntTuple *lastAlign = stList_get(alignment, stList_length(alignment) - 1);
+        int hap = 0;
+        if (stSet_search(readsInHap1, read)) {
+            hap = 1;
+        } else if (stSet_search(readsInHap2, read)) {
+            hap = 2;
+        }
+
+        //write
+        if (i != 0) {
+            fprintf(out, ",");
+        }
+        fprintf(out, "\n  {\n");
+        fprintf(out, "     \"name\": \"%s\",\n", read->readName);
+        fprintf(out, "     \"strand\": \"%s\",\n", read->forwardStrand ? "+" : "-");
+        fprintf(out, "     \"startPos\": %"PRId64",\n", bamChunk->chunkBoundaryStart + stIntTuple_get(firstAlign, 0));
+        fprintf(out, "     \"endPos\": %"PRId64",\n", bamChunk->chunkBoundaryStart + stIntTuple_get(lastAlign, 0));
+        fprintf(out, "     \"hap\": %d\n", hap);
+        fprintf(out, "  }");
+    }
+
+    // filtered reads
+    for (int64_t i = 0; i < stList_length(filteredReads); i++) {
+        BamChunkRead *read = stList_get(filteredReads, i);
+        stList *alignment = stList_get(filteredAlignments, i);
+        stIntTuple *firstAlign = stList_get(alignment, 0);
+        stIntTuple *lastAlign = stList_get(alignment, stList_length(alignment) - 1);
+        int hap = 0;
+        if (stSet_search(readsInHap1, read)) {
+            hap = 1;
+        } else if (stSet_search(readsInHap2, read)) {
+            hap = 2;
+        }
+
+        //write
+        fprintf(out, ",\n  {\n");
+        fprintf(out, "     \"name\": \"%s\",\n", read->readName);
+        fprintf(out, "     \"strand\": \"%s\",\n", read->forwardStrand ? "+" : "-");
+        fprintf(out, "     \"startPos\": %"PRId64",\n", bamChunk->chunkBoundaryStart + stIntTuple_get(firstAlign, 0));
+        fprintf(out, "     \"endPos\": %"PRId64",\n", bamChunk->chunkBoundaryStart + stIntTuple_get(lastAlign, 0));
+        fprintf(out, "     \"hap\": %d\n", hap);
+        fprintf(out, "  }");
+    }
+
+    // write
+    if (out != NULL) {
+        fprintf(out, "\n ]");
+    }
 }
 
 
@@ -328,7 +494,7 @@ void assignFilteredReadsToHaplotypesInParts(BamChunk* bamChunk, BubbleGraph *bg,
 
         // partition reads
         assignFilteredReadsToHaplotypes(bg, hap1, hap2, rleReference, maintainedReads, maintainedAlignments,
-                                        hap1Reads, hap2Reads, params);
+                                        hap1Reads, hap2Reads, params, bamChunk, NULL);
 
         // log downsampling
         st_logInfo(" %s Filtered read assignment iteration %"PRId64" handled %"PRId64" reads (%"PRId64" remaining) in %"PRId64"s\n",
