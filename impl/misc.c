@@ -216,12 +216,16 @@ void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *
                 }
 
                 // write
-                if (out != NULL && read->rleRead->rleString[observation->offset]) {
+                if (out != NULL) {
                     if (o != 0) fprintf(out, ",");
                     fprintf(out, "\n     {\n");
                     fprintf(out, "      \"name\": \"%s\",\n", read->readName);
                     fprintf(out, "      \"hap\": 1,\n");
-                    fprintf(out, "      \"hapSupport\": %f\n", observation->weight);
+                    if (insertNodeX->base == read->rleRead->rleString[observation->offset]) {
+                        fprintf(out, "      \"hapSupport\": %f\n", observation->weight);
+                    } else {
+                        fprintf(out, "      \"hapSupport\": %f\n", -1 * observation->weight);
+                    }
                     fprintf(out, "     }");
                 }
             }
@@ -258,12 +262,16 @@ void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *
                 }
 
                 // write
-                if (out != NULL && read->rleRead->rleString[observation->offset]) {
+                if (out != NULL) {
                     if (o != 0) fprintf(out, ",");
                     fprintf(out, "\n     {\n");
                     fprintf(out, "      \"name\": \"%s\",\n", read->readName);
                     fprintf(out, "      \"hap\": 2,\n");
-                    fprintf(out, "      \"hapSupport\": %f\n", observation->weight);
+                    if (insertNodeY->base == read->rleRead->rleString[observation->offset]) {
+                        fprintf(out, "      \"hapSupport\": %f\n", observation->weight);
+                    } else {
+                        fprintf(out, "      \"hapSupport\": %f\n", -1 * observation->weight);
+                    }
                     fprintf(out, "     }");
                 }
             }
@@ -302,12 +310,16 @@ void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *
                     }
 
                     // write
-                    if (out != NULL && read->rleRead->rleString[observation->offset]) {
+                    if (out != NULL) {
                         if (o != 0) fprintf(out, ",");
                         fprintf(out, "\n     {\n");
                         fprintf(out, "      \"name\": \"%s\",\n", read->readName);
                         fprintf(out, "      \"hap\": 1,\n");
-                        fprintf(out, "      \"hapSupport\": %f\n", observation->weight);
+                        if (matchNodeH1->base == read->rleRead->rleString[observation->offset]) {
+                            fprintf(out, "      \"hapSupport\": %f\n", observation->weight);
+                        } else {
+                            fprintf(out, "      \"hapSupport\": %f\n", -1 * observation->weight);
+                        }
                         fprintf(out, "     }");
                     }
                 }
@@ -321,12 +333,16 @@ void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *
                     }
 
                     // write
-                    if (out != NULL && read->rleRead->rleString[observation->offset]) {
+                    if (out != NULL) {
                         if (o != 0 || stList_length(matchNodeH1->observations) != 0) fprintf(out, ",");
                         fprintf(out, "\n     {\n");
                         fprintf(out, "      \"name\": \"%s\",\n", read->readName);
                         fprintf(out, "      \"hap\": 2,\n");
-                        fprintf(out, "      \"hapSupport\": %f\n", observation->weight);
+                        if (matchNodeH2->base == read->rleRead->rleString[observation->offset]) {
+                            fprintf(out, "      \"hapSupport\": %f\n", observation->weight);
+                        } else {
+                            fprintf(out, "      \"hapSupport\": %f\n", -1 * observation->weight);
+                        }
                         fprintf(out, "     }");
                     }
                 }
@@ -363,10 +379,10 @@ void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *
 
         if (totalReadScore_hap1[i] < totalReadScore_hap2[i]) {
             stSet_insert(hap2Reads, read);
-            hap1Count++;
+            hap2Count++;
         } else if (totalReadScore_hap1[i] > totalReadScore_hap2[i]) {
             stSet_insert(hap1Reads, read);
-            hap2Count++;
+            hap1Count++;
         } else {
             if (totalReadScore_hap1[i] == 0) {
                 totalNoScoreLength += read->rleRead->nonRleLength;

@@ -45,6 +45,7 @@ void usage() {
     fprintf(stderr, "    -p --depth               : Will override the downsampling depth set in PARAMS.\n");
     fprintf(stderr, "    -P --minPartitionPhred   : Min Phred-scale liklihood for partition inclusion (diploid)\n");
     fprintf(stderr, "    -k --tempFilesToDisk     : Write temporary files to disk (for --diploid or supplementary output).\n");
+    fprintf(stderr, "    -F --skipFilteredReads   : Will NOT attempt to haplotype filtered reads.\n");
 
     fprintf(stderr, "\nMiscellaneous supplementary output options:\n");
     fprintf(stderr, "    -c --supplementaryChunks : Write supplementary files for each chunk (in additon to writing\n");
@@ -55,6 +56,7 @@ void usage() {
     fprintf(stderr, "    -i --outputRepeatCounts  : Write out the repeat counts as CSV file\n");
     fprintf(stderr, "    -j --outputPoaCsv        : Write out the poa as CSV file\n");
     fprintf(stderr, "    -n --outputHaplotypeReads: Write out phased reads and likelihoods as CSV file\n");
+    fprintf(stderr, "    -s --outputPhasingState  : Write out phasing likelihoods as JSON file\n");
     fprintf(stderr, "\n");
 }
 
@@ -81,6 +83,8 @@ int main(int argc, char *argv[]) {
     bool outputHaplotypeReads = FALSE;
     bool writeChunkSupplementaryOutput = FALSE;
     bool writeChunkSupplementaryOutputOnly = FALSE;
+    bool partitionFilteredReads = TRUE;
+    bool outputPhasingState = FALSE;
 
     if (argc < 4) {
         free(outputBase);
@@ -113,10 +117,12 @@ int main(int argc, char *argv[]) {
 				{ "outputPoaDot", no_argument, 0, 'd'},
 				{ "outputHaplotypeReads", no_argument, 0, 'n'},
                 { "tempFilesToDisk", no_argument, 0, 'k'},
+                { "skipFilteredReads", no_argument, 0, 'F'},
+                { "outputPhasingState", no_argument, 0, 't'},
                 { 0, 0, 0, 0 } };
 
         int option_index = 0;
-        int key = getopt_long(argc-2, &argv[2], "ha:o:v:p:P:t:r:cCijdnk", long_options, &option_index);
+        int key = getopt_long(argc-2, &argv[2], "ha:o:v:p:P:t:r:cCijdnkFs", long_options, &option_index);
 
         if (key == -1) {
             break;
@@ -155,6 +161,9 @@ int main(int argc, char *argv[]) {
         case 'k':
             inMemory = FALSE;
             break;
+        case 'F':
+            partitionFilteredReads = FALSE;
+            break;
         case 'c':
             writeChunkSupplementaryOutput = TRUE;
             break;
@@ -172,6 +181,9 @@ int main(int argc, char *argv[]) {
             break;
         case 'n':
             outputHaplotypeReads = TRUE;
+            break;
+        case 's':
+            outputPhasingState = TRUE;
             break;
         default:
             usage();
@@ -493,36 +505,47 @@ int main(int argc, char *argv[]) {
                                                              readsBelongingToHap2, readsBelongingToHap1, params->polishParams);
         }
 
-        /* <<< TODO begin code to attempt to phase filtered reads */
-        for (int64_t bcrIdx = 0; bcrIdx < stList_length(reads); bcrIdx++) {
-            BamChunkRead *bcr = stList_get(reads, bcrIdx);
-            if (!stSet_search(readsBelongingToHap1, bcr) && !stSet_search(readsBelongingToHap2, bcr)) {
-                // was filtered in some form
-                stList_append(filteredReads, bamChunkRead_constructCopy(bcr));
-                stList_append(filteredAlignments, copyListOfIntTuples(stList_get(alignments, bcrIdx)));
-            }
+        // debugging output
+        char *chunkBubbleOutFilename = NULL;
+        FILE *chunkBubbleOut = NULL;
+        if (outputPhasingState) {
+            // save info
+            chunkBubbleOutFilename = stString_print("%s.C%05"PRId64".%s-%"PRId64"-%"PRId64".phasingInfo.json",
+                    outputBase, chunkIdx,  bamChunk->refSeqName, bamChunk->chunkBoundaryStart, bamChunk->chunkBoundaryEnd);
+            st_logInfo(" %s Saving chunk phasing info to: %s\n", logIdentifier, chunkBubbleOutFilename);
+            chunkBubbleOut = fopen(chunkBubbleOutFilename, "w");
+            fprintf(chunkBubbleOut, "{\n");
+            bubbleGraph_saveBubblePhasingInfo(bamChunk, bg, readsToPSeqs, gf, chunkBubbleOut);
         }
 
-        // save info
-        char *chunkBubbleOutFilename = stString_print("%s.C%05"PRId64".%s-%"PRId64"-%"PRId64".phasingInfo.json",
-                                                      outputBase, chunkIdx,  bamChunk->refSeqName, bamChunk->chunkBoundaryStart, bamChunk->chunkBoundaryEnd);
-        st_logInfo(" %s Saving chunk phasing info to: %s\n", logIdentifier, chunkBubbleOutFilename);
-        FILE *chunkBubbleOut = fopen(chunkBubbleOutFilename, "w");
-        fprintf(chunkBubbleOut, "{\n");
-        bubbleGraph_saveBubblePhasingInfo(bamChunk, bg, readsToPSeqs, gf, chunkBubbleOut);
+        // should included filtered reads in output
+        if (partitionFilteredReads) {
+            // get filtered reads
+            for (int64_t bcrIdx = 0; bcrIdx < stList_length(reads); bcrIdx++) {
+                BamChunkRead *bcr = stList_get(reads, bcrIdx);
+                if (!stSet_search(readsBelongingToHap1, bcr) && !stSet_search(readsBelongingToHap2, bcr)) {
+                    // was filtered in some form
+                    stList_append(filteredReads, bamChunkRead_constructCopy(bcr));
+                    stList_append(filteredAlignments, copyListOfIntTuples(stList_get(alignments, bcrIdx)));
+                }
+            }
+            st_logInfo(" %s Attempting to assign %"PRId64" filtered reads to haplotypes\n", logIdentifier, stList_length(filteredReads));
+            // do the final read filtering
+            assignFilteredReadsToHaplotypes(bg, hap1, hap2, rleReference, filteredReads, filteredAlignments,
+                                            readsBelongingToHap1, readsBelongingToHap2, params, bamChunk,
+                                            chunkBubbleOut);
+        }
 
-        // do the final read filtering
-        assignFilteredReadsToHaplotypes(bg, hap1, hap2, rleReference, filteredReads, filteredAlignments,
-                readsBelongingToHap1, readsBelongingToHap2, params, bamChunk, chunkBubbleOut);
 
-        writePhasedReadInfoJSON(bamChunk, reads, alignments, filteredReads, filteredAlignments, readsBelongingToHap1,
-                                readsBelongingToHap2, chunkBubbleOut);
-
-        fprintf(chunkBubbleOut, "\n}\n");
-        fclose(chunkBubbleOut);
-        free(chunkBubbleOutFilename);
-        /* >>> TODO end code to attempt to phase filtered reads */
-
+        // debugging output for state
+        if (outputPhasingState) {
+            writePhasedReadInfoJSON(bamChunk, reads, alignments, filteredReads, filteredAlignments,
+                                    readsBelongingToHap1,
+                                    readsBelongingToHap2, chunkBubbleOut);
+            fprintf(chunkBubbleOut, "\n}\n");
+            fclose(chunkBubbleOut);
+            free(chunkBubbleOutFilename);
+        }
 
         // Output
         outputChunkers_processChunkSequencePhased(outputChunkers, threadIdx, chunkIdx, bamChunk->refSeqName,
