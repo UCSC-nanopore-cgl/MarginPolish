@@ -370,6 +370,7 @@ int main(int argc, char *argv[]) {
         st_logInfo(">%s Going to process a chunk (~%"PRId64"x) for reference sequence: %s, starting at: %i and ending at: %i\n",
                    logIdentifier, bamChunk->estimatedDepth, bamChunk->refSeqName, (int) bamChunk->chunkBoundaryStart,
                    (int) (fullRefLen < bamChunk->chunkBoundaryEnd ? fullRefLen : bamChunk->chunkBoundaryEnd));
+        uint64_t *reference_rleToNonRleCoordMap = rleString_getRleToNonRleCoordinateMap(rleReference);
 
         // Convert bam lines into corresponding reads and alignments
         st_logInfo(" %s Parsing input reads from file: %s\n", logIdentifier, bamInFile);
@@ -399,9 +400,11 @@ int main(int argc, char *argv[]) {
             stList *maintainedAlignments = stList_construct3(0, (void (*)(void *)) stList_destruct);
 
             // save removed reads to filtered-in-cTRAAWF lists (for classification after phasing)
-            bool didDownsample = downsampleViaHetSpanLikelihood(params->phaseParams->maxCoverageDepth, bamChunk,
+            /*bool didDownsample = downsampleViaHetSpanLikelihood(params->phaseParams->maxCoverageDepth, bamChunk,
                     chunkVcfEntries, reads, alignments, maintainedReads, maintainedAlignments, filteredReads,
-                    filteredAlignments);
+                    filteredAlignments);*/
+            bool didDownsample = downsampleViaReadLikelihood(params->phaseParams->maxCoverageDepth, bamChunk,
+                    reads, alignments, maintainedReads, maintainedAlignments, filteredReads, filteredAlignments);
 
             // we need to destroy the discarded reads and structures
             if (didDownsample) {
@@ -515,7 +518,8 @@ int main(int argc, char *argv[]) {
             st_logInfo(" %s Saving chunk phasing info to: %s\n", logIdentifier, chunkBubbleOutFilename);
             chunkBubbleOut = fopen(chunkBubbleOutFilename, "w");
             fprintf(chunkBubbleOut, "{\n");
-            bubbleGraph_saveBubblePhasingInfo(bamChunk, bg, readsToPSeqs, gf, chunkBubbleOut);
+            bubbleGraph_saveBubblePhasingInfo(bamChunk, bg, readsToPSeqs, gf, reference_rleToNonRleCoordMap,
+                    chunkBubbleOut);
         }
 
         // should included filtered reads in output
@@ -531,17 +535,17 @@ int main(int argc, char *argv[]) {
             }
             st_logInfo(" %s Attempting to assign %"PRId64" filtered reads to haplotypes\n", logIdentifier, stList_length(filteredReads));
             // do the final read filtering
-            assignFilteredReadsToHaplotypes(bg, hap1, hap2, rleReference, filteredReads, filteredAlignments,
-                                            readsBelongingToHap1, readsBelongingToHap2, params, bamChunk,
-                                            chunkBubbleOut);
+            assignFilteredReadsToHaplotypes(bg, hap1, hap2, rleReference, reference_rleToNonRleCoordMap,
+                    filteredReads, filteredAlignments, readsBelongingToHap1, readsBelongingToHap2, params, bamChunk,
+                    chunkBubbleOut);
         }
 
 
         // debugging output for state
         if (outputPhasingState) {
             writePhasedReadInfoJSON(bamChunk, reads, alignments, filteredReads, filteredAlignments,
-                                    readsBelongingToHap1,
-                                    readsBelongingToHap2, chunkBubbleOut);
+                                    readsBelongingToHap1, readsBelongingToHap2, reference_rleToNonRleCoordMap,
+                                    chunkBubbleOut);
             fprintf(chunkBubbleOut, "\n}\n");
             fclose(chunkBubbleOut);
             free(chunkBubbleOutFilename);
@@ -588,6 +592,7 @@ int main(int argc, char *argv[]) {
         stList_destruct(chunkVcfEntries);
 
         // Cleanup
+        free(reference_rleToNonRleCoordMap);
         rleString_destruct(rleReference);
         poa_destruct(poa);
         stList_destruct(reads);

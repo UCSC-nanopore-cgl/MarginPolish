@@ -1296,7 +1296,7 @@ uint128_t bionomialCoefficient(int64_t n, int64_t k);
  * For tracking Bubble Graph stuff
  */
 void bubbleGraph_saveBubblePhasingInfo(BamChunk *bamChunk, BubbleGraph *bg, stHash *readsToPSeqs, stGenomeFragment *gF,
-        FILE *out);
+        uint64_t *reference_rleToNonRleCoordMap, FILE *out);
 
 /*
  * For logging while multithreading
@@ -1385,11 +1385,12 @@ ChunkToStitch *mergeContigChunkzThreaded(ChunkToStitch **chunks, int64_t startId
 struct _vcfEntry {
     char *refSeqName;
     int64_t refPos;
+    double phredQuality;
     RleString *allele1;
     RleString *allele2;
 };
 
-VcfEntry *vcfEntry_construct(char *refSeqName, int64_t refPos, RleString *allele1, RleString *allele2);
+VcfEntry *vcfEntry_construct(char *refSeqName, int64_t refPos, double phredQuality, RleString *allele1, RleString *allele2);
 void vcfEntry_destruct(VcfEntry *vcfEntry);
 stList *parseVcf(char *vcfFile, PolishParams *params);
 stList *getVcfEntriesForRegion(stList *vcfEntries, char *refSeqName, int64_t startPos, int64_t endPos);
@@ -1409,16 +1410,19 @@ RleString *bamChunk_getReferenceSubstring(BamChunk *bamChunk, stHash *referenceS
 uint64_t *getPaddedHaplotypeString(uint64_t *hap, stGenomeFragment *gf, BubbleGraph *bg, Params *params);
 stSet *bamChunkRead_to_readName(stSet *bamChunkReads);
 stList *copyListOfIntTuples(stList *toCopy);
+double toPhred(double prob);
+double fromPhred(double phred);
 void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *hap2, RleString *rleReference,
-                                     stList *filteredReads, stList *filteredAlignments,
-                                     stSet *hap1Reads, stSet *hap2Reads, Params *params,
+                                     uint64_t *reference_rleToNonRleCoordMap, stList *filteredReads,
+                                     stList *filteredAlignments, stSet *hap1Reads, stSet *hap2Reads, Params *params,
                                      BamChunk *bamChunk, FILE *out);
 void assignFilteredReadsToHaplotypesInParts(BamChunk* bamChunk, BubbleGraph *bg, uint64_t *hap1, uint64_t *hap2,
 											RleString *rleReference, stList *reads, stList *alignments,
 											stSet *hap1Reads, stSet *hap2Reads,
 											Params *params, int64_t partSize, char *logIdentifier);
 void writePhasedReadInfoJSON(BamChunk *bamChunk, stList *primaryReads, stList *primaryAlignments, stList *filteredReads,
-                             stList *filteredAlignments, stSet *readsInHap1, stSet *readsInHap2, FILE *out);
+                             stList *filteredAlignments, stSet *readsInHap1, stSet *readsInHap2,
+                             uint64_t *reference_rleToNonRleCoordMap, FILE *out);
 /*
  * HELEN Features
  */

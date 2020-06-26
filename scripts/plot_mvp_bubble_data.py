@@ -26,16 +26,8 @@ def parse_args(args = None):
                         help='Size in BP to plot spacers between bubble sites')
     parser.add_argument('--verbose', '-v', dest='verbose', default=False, required=False, action='store_true',
                         help='Print extra information on plot')
-
-
-    parser.add_argument('--result_vcf', '-r', dest='result_vcf', default=None, required=False, type=str,
-                        help='VCF containing TP/FP/FN classified sites')
-    parser.add_argument('--chunks', '-c', dest='chunks', default=None, required=False, type=str,
-                        help='File describing chunk positions')
     parser.add_argument('--figure_name', '-f', dest='figure_name', default=None, required=False, type=str,
                         help='Figure name (will save if set)')
-    parser.add_argument('--untagged_only', '-u', dest='untagged_only', default=False, required=False, action='store_true',
-                        help='Only plot untagged reads')
 
     return parser.parse_args() if args is None else parser.parse_args(args)
 
@@ -51,16 +43,67 @@ STRAND="strand"
 QUAL="qual"
 HAP="hap"
 HAP_SUPPORT="hapSupport"
+HAP_SUPPORT_H1="hapSupportH1"
+HAP_SUPPORT_H2="hapSupportH2"
 STRAND_SKEW="strandSkew"
 REF_POS="refPos"
 START_POS="startPos"
 END_POS="endPos"
+TYPE="type"
+
+
+def log_filtered_read_types(read_data, xpos_list, primary_reads, filtered_reads, filtered_bubbles_merged):
+
+    xpos_type_hap_values = defaultdict(lambda: defaultdict(lambda: [[],[],[]]))
+
+    # write points to plot
+    for read in read_data.values():
+        name = read[NAME]
+
+        # then iterate over sites (xpos)
+        for x,p in enumerate(xpos_list):
+            # only plot points where reads overlap
+            if read[START_POS] <= p < read[END_POS]:
+
+                # primary reads
+                if name in primary_reads:
+                    continue
+
+                # filtered reads
+                elif name in filtered_reads:
+                    if p in filtered_bubbles_merged and name in filtered_bubbles_merged[p][READS]:
+                        bub_read_summary = filtered_bubbles_merged[p][READS][name]
+                        for bub_read in bub_read_summary[READS]:
+                            xpos_type_hap_values[p][bub_read[TYPE]][bub_read[HAP]].append(bub_read[HAP_SUPPORT])
+
+    for pos in sorted(list(xpos_type_hap_values.keys())):
+        type_hap_values = xpos_type_hap_values[pos]
+        pos_total = sum(map(lambda x: sum(x[1]) + sum(x[2]), type_hap_values.values()))
+        hap1_total = sum(map(lambda x: sum(x[1]), type_hap_values.values()))
+        hap2_total = sum(map(lambda x: sum(x[2]), type_hap_values.values()))
+        log("{}".format(pos))
+        log("  H1: {:11d} ({:.3f})".format(int(hap1_total), hap1_total / pos_total))
+        log("  H2: {:11d} ({:.3f})".format(int(hap2_total), hap2_total / pos_total))
+        for type in sorted(list(xpos_type_hap_values[pos].keys())):
+            hap1_values = type_hap_values[type][1]
+            hap2_values = type_hap_values[type][2]
+            hap1_total = sum(hap1_values)
+            hap2_total = sum(hap2_values)
+            type_total = max(1, hap1_total + hap2_total)
+            log("    {}: {:9d} ({:.3f})".format(type.upper(), int(type_total), type_total / pos_total))
+            log("        H1:  total {:9d} ({:.3f}), avg {:9d}".format(int(hap1_total), hap1_total/type_total,
+                                                                    0 if len(hap1_values) == 0 else int(np.mean(hap1_values))))
+            log("        H2:  total {:9d} ({:.3f}), avg {:9d}".format(int(hap2_total), hap2_total/type_total,
+                                                                    0 if len(hap2_values) == 0 else int(np.mean(hap2_values))))
+
+
 
 def main():
     args = parse_args()
     ss = args.spacer_size
 
     # get json file
+    log("Parsing {} for read and phasing info".format(args.input))
     with open(args.input, 'r') as istream:
         json_doc = json.load(istream)
     if FILTERED not in json_doc:
@@ -88,7 +131,7 @@ def main():
     read_data = {}
     for bubble in json_doc[PRIMARY]:
         primary_bubbles[bubble[REF_POS]] = bubble
-        bubble_reads = defaultdict(lambda : list())
+        bubble_reads = dict()
         #bubble_reads = defaultdict(lambda : list())
         for read in bubble[READS]:
             primary_reads.add(read[NAME])
@@ -238,6 +281,9 @@ def main():
                     break
         return output_read_name_lists
 
+    # loggit
+    # log_filtered_read_types(read_data, xpos_list, primary_reads, filtered_reads, filtered_bubbles_merged)
+
     # helper to generate ypos_map
     ypos_map = {}
     def update_ypos_map(read_list_list, ypos):
@@ -261,6 +307,8 @@ def main():
     SPACER_POINT_ALPHA=.5
 
     # write points to plot
+    # plt.figure(num=None, figsize=(.15 * len(set(ypos_map.values())), .1 * len(xpos_list)), dpi=80, facecolor='w', edgecolor='k')
+    plt.figure(num=None, figsize=(18,12))
     for read in read_data.values():
         # first iterate over reads (ypos)
         name = read[NAME]
@@ -286,13 +334,16 @@ def main():
                         alpha=1.0
                         if name in primary_bubbles[p][READS]:
                             bub_read = primary_bubbles[p][READS][name]
-                            alpha = -1 / bub_read[HAP_SUPPORT]
-                            if bub_read[HAP] == 1:
+                            supportH1 = bub_read[HAP_SUPPORT_H1]
+                            supportH2 = bub_read[HAP_SUPPORT_H2]
+                            if supportH1 > supportH2:
                                 color = "blue"
                                 marker = "o"
-                            elif bub_read[HAP] == 2:
+                                alpha = -1 / supportH1
+                            elif supportH2 > supportH1:
                                 color = "red"
                                 marker = "o"
+                                alpha = -1 / supportH2
                         plt.scatter(x,y,marker=marker,color=color,alpha=alpha,edgecolors="black")
                     else:
                         color = "darkblue" if read[HAP] == 1 else ("darkred" if read[HAP] == 2 else "dimgrey")
@@ -326,10 +377,13 @@ def main():
     plt.hlines(y=ypos_map['spacer_pf'], color="black", linestyle='--', xmin=-1, xmax=len(xpos_list), alpha=.5)
 
     # describe het sites
-    plt.xticks(xpos_ticks, xpos_labels, rotation=45)
+    plt.xticks(xpos_ticks, xpos_labels, rotation=45, fontsize=10)
     plt.yticks([],[])
     plt.tight_layout()
+    if args.figure_name is not None:
+        plt.savefig(args.figure_name, dpi=360)
     plt.show()
+    plt.close()
 
 
 

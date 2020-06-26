@@ -1326,7 +1326,7 @@ void bubbleGraph_logPhasedBubbleGraph(BubbleGraph *bg, stRPHmm *hmm, stList *pat
  */
 
 void bubbleGraph_saveBubblePhasingInfo(BamChunk *bamChunk, BubbleGraph *bg, stHash *readsToPSeqs, stGenomeFragment *gF,
-        FILE *out) {
+                                       uint64_t *reference_rleToNonRleCoordMap, FILE *out) {
     fprintf(out, " \"primary\": [");
     bool firstBubble = TRUE;
     for (uint64_t i = 0; i < gF->length; i++) {
@@ -1347,7 +1347,7 @@ void bubbleGraph_saveBubblePhasingInfo(BamChunk *bamChunk, BubbleGraph *bg, stHa
         }
 
         // bubble info
-        int64_t trueRefStartPos = bamChunk->chunkBoundaryStart + b->refStart;
+        int64_t trueRefStartPos = bamChunk->chunkBoundaryStart + reference_rleToNonRleCoordMap[b->refStart];
         double strandSkew = bubble_phasedStrandSkew(b, readsToPSeqs, gF);
         fprintf(out, "   \"refPos\": %"PRId64",\n", trueRefStartPos);
         fprintf(out, "   \"strandSkew\": %f,\n", strandSkew);
@@ -1373,15 +1373,14 @@ void bubbleGraph_saveBubblePhasingInfo(BamChunk *bamChunk, BubbleGraph *bg, stHa
 
             bool inHap1 = FALSE;
             bool inHap2 = FALSE;
-            double readHapSupport = DBL_MIN;
+            double readHap1Support = b->alleleReadSupports[hap1AlleleNo * b->readNo + j];
+            double readHap2Support = b->alleleReadSupports[hap2AlleleNo * b->readNo + j];
 
             if (stSet_search(gF->reads1, pSeq) != NULL) {
-                readHapSupport = b->alleleReadSupports[hap1AlleleNo * b->readNo + j];
                 inHap1 = TRUE;
             }
 
             if (stSet_search(gF->reads2, pSeq) != NULL) {
-                readHapSupport = b->alleleReadSupports[hap2AlleleNo * b->readNo + j];
                 inHap2 = TRUE;
             }
 
@@ -1389,8 +1388,9 @@ void bubbleGraph_saveBubblePhasingInfo(BamChunk *bamChunk, BubbleGraph *bg, stHa
                 fprintf(out, "     \"hap\": %d,\n", 0);
             } else {
                 fprintf(out, "     \"hap\": %d,\n", inHap1 ? 1 : 2);
-                fprintf(out, "     \"hapSupport\": %f\n", readHapSupport);
             }
+            fprintf(out, "     \"hapSupportH1\": %f,\n", readHap1Support);
+            fprintf(out, "     \"hapSupportH2\": %f\n", readHap2Support);
             fprintf(out, "    }");
         }
         fprintf(out, "\n   ]");

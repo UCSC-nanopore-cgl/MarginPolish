@@ -4,10 +4,12 @@
 
 #include "margin.h"
 
-VcfEntry *vcfEntry_construct(char *refSeqName, int64_t refPos, RleString *allele1, RleString *allele2) {
+VcfEntry *vcfEntry_construct(char *refSeqName, int64_t refPos, double phredQuality,
+        RleString *allele1, RleString *allele2) {
     VcfEntry *vcfEntry = st_calloc(1, sizeof(VcfEntry));
     vcfEntry->refSeqName = stString_copy(refSeqName);
     vcfEntry->refPos = refPos;
+    vcfEntry->phredQuality = phredQuality;
     vcfEntry->allele1 = allele1;
     vcfEntry->allele2 = allele2;
     return vcfEntry;
@@ -20,6 +22,8 @@ void vcfEntry_destruct(VcfEntry *vcfEntry) {
     free(vcfEntry);
 }
 
+#define GQ_WEIGHT .8
+#define  Q_WEIGHT .2
 stList *parseVcf2(char *vcfFile, bool hetOnly, PolishParams *params) {
     stList *entries = stList_construct3(0, (void(*)(void*))vcfEntry_destruct);
     FILE *fp = fopen(vcfFile, "r");
@@ -39,10 +43,12 @@ stList *parseVcf2(char *vcfFile, bool hetOnly, PolishParams *params) {
         // get genotype idx
         stList *format = stString_splitByString(stList_get(elements, 8), ":");
         int64_t gtIdx = -1;
+        int64_t gqIdx = -1;
         for (int64_t i = 0; i < stList_length(format); i++) {
             if (stString_eq("GT", stList_get(format, i))) {
                 gtIdx = i;
-                break;
+            } else if (stString_eq("GQ", stList_get(format, i))) {
+                gqIdx = i;
             }
         }
         if (gtIdx == -1) {
@@ -75,6 +81,24 @@ stList *parseVcf2(char *vcfFile, bool hetOnly, PolishParams *params) {
         int64_t gt2 = genotypeStr[2] - '0';
         assert(gt1 >= 0 && gt2 >=0);
 
+        // get variant quality
+        double variantQuality = -1;
+        double genotypeQuality = -1;
+        double quality = -1;
+        if (gqIdx != -1) {
+            genotypeQuality = atof(stList_get(sample,gqIdx));
+        }
+        if (!stString_eq(".", stList_get(elements, 5))) {
+            quality = atof(stList_get(elements, 5));
+        }
+        if (genotypeQuality > 0 && quality > 0) {
+            variantQuality = toPhred( GQ_WEIGHT * fromPhred(genotypeQuality) + Q_WEIGHT * fromPhred(quality));
+        } else if (genotypeQuality > 0) {
+            variantQuality = genotypeQuality;
+        } else if (quality > 0) {
+            variantQuality = quality;
+        }
+
         // get alleles
         stList *alleles = stList_construct(); //ref is freed in elements, alts are freed in altAlleles
         stList_append(alleles, stList_get(elements, 3)); //ref
@@ -94,7 +118,7 @@ stList *parseVcf2(char *vcfFile, bool hetOnly, PolishParams *params) {
                                                                  : rleString_construct_no_rle(allele1);
             RleString *rleAllele2 = params->useRunLengthEncoding ? rleString_construct(allele2)
                                                                  : rleString_construct_no_rle(allele2);
-            VcfEntry *entry = vcfEntry_construct(chrom, pos, rleAllele1, rleAllele2);
+            VcfEntry *entry = vcfEntry_construct(chrom, pos, variantQuality, rleAllele1, rleAllele2);
             stList_append(entries, entry);
         }
 
@@ -126,8 +150,8 @@ stList *getVcfEntriesForRegion(stList *vcfEntries, char *refSeqName, int64_t sta
         if (!stString_eq(refSeqName, e->refSeqName)) continue;
         if (startPos > e->refPos) continue;
         if (endPos <= e->refPos) continue;
-        VcfEntry *copy = vcfEntry_construct(e->refSeqName, e->refPos - startPos, rleString_copy(e->allele1),
-                                            rleString_copy(e->allele2));
+        VcfEntry *copy = vcfEntry_construct(e->refSeqName, e->refPos - startPos, e->phredQuality,
+                rleString_copy(e->allele1), rleString_copy(e->allele2));
         stList_append(regionEntries, copy);
     }
     return regionEntries;

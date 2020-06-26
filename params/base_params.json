@@ -23,7 +23,7 @@
           "useRepeatCountsInAlignment": true,
           "includeSoftClipping": false,
           "chunkSize": 100000,
-          "chunkBoundary": 5000,
+          "chunkBoundary": 20000,
           "maxDepth": 128,
           "shuffleChunks": true,
           "referenceBasePenalty": 0.5,
@@ -57,7 +57,7 @@
                 "splitMatrixBiggerThanThis": 250000000,
                 "alignAmbiguityCharacters": false,
                 "dynamicAnchorExpansion": true,
-                "gapGamma": 0.5
+                "gapGamma": 0.25
           },
           "repeatCountSubstitutionMatrix" : {
                 "baseLogRepeatCounts_AT": [

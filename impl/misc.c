@@ -138,8 +138,19 @@ stList *copyListOfIntTuples(stList *toCopy) {
     return copy;
 }
 
+double toPhred(double prob) {
+    return -10 * log10(prob);
+}
+
+double fromPhred(double phred) {
+    return pow(10, phred / -10.0);
+}
+
+#define SUBTRACT_NON_MATCH_SUPPORT FALSE
+#define MAX_DELETE_SIZE 4
 void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *hap2, RleString *rleReference,
-                                     stList *filteredReads, stList *filteredAlignments, stSet *hap1Reads,
+                                     uint64_t *reference_rleToNonRleCoordMap, stList *filteredReads,
+                                     stList *filteredAlignments, stSet *hap1Reads,
                                      stSet *hap2Reads, Params *params, BamChunk *bamChunk, FILE *out) {
     // quick fail
     int64_t length = stList_length(filteredReads);
@@ -186,51 +197,99 @@ void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *
     int64_t insertH2 = 0;
     int64_t mismatch = 0;
     bool firstBubble = TRUE;
+    int64_t insertLenH1 = 0;
+    int64_t insertLenH2 = 0;
     while (TRUE) {
         if (currAlign == NULL) break;
         int64_t currAlignPosHap1 = stIntTuple_get(currAlign, 0);
         int64_t currAlignPosHap2 = stIntTuple_get(currAlign, 1);
+
+        int64_t avgRefPos = (int64_t) (posH1/2 + posH2/2);
+        if (bamChunk->chunkBoundaryStart + reference_rleToNonRleCoordMap[avgRefPos >= rleReference->length ? rleReference->length - 1 : avgRefPos] == 59097457) {
+            st_logInfo("");
+        }
         // H2 gap / H1 insert
         if (posH1 < currAlignPosHap1) {
             insertH1++;
-            PoaNode *insertNodeX = stList_get(filteredPoa_hap1->nodes, posH1);
+            insertLenH1++;
+            PoaNode *insertNodeH1 = stList_get(filteredPoa_hap1->nodes, posH1);
 
+            bool firstWrittenRead = TRUE;
             if (out != NULL) {
+                int64_t refPos = (int64_t) (posH1/2 + posH2/2);
+                refPos = bamChunk->chunkBoundaryStart+(refPos >= rleReference->length ? rleReference->length-1 : reference_rleToNonRleCoordMap[refPos]);
                 if (firstBubble) {
                     firstBubble = FALSE;
                 } else {
                     fprintf(out, ",");
                 }
                 fprintf(out, "\n   {\n");
-                fprintf(out, "    \"refPos\": %"PRId64",\n", bamChunk->chunkBoundaryStart + (int) (posH1/2 + posH2/2));
+                fprintf(out, "    \"refPos\": %"PRId64",\n", refPos);
+                fprintf(out, "    \"type\": \"insert\",\n");
+                fprintf(out, "    \"hap\": 1,\n");
+                fprintf(out, "    \"h1_nucl\": \"%c,%"PRIu64"\",\n", insertNodeH1->base, insertNodeH1->repeatCount);
                 fprintf(out, "    \"reads\": [");
             }
 
-            for (int64_t o = 0; o < stList_length(insertNodeX->observations); o++) {
-                PoaBaseObservation *observation = stList_get(insertNodeX->observations, o);
+            // track H1 insert observation
+            for (int64_t o = 0; o < stList_length(insertNodeH1->observations); o++) {
+                PoaBaseObservation *observation = stList_get(insertNodeH1->observations, o);
                 BamChunkRead *read = stList_get(filteredReads, observation->readNo);
-                if (insertNodeX->base == read->rleRead->rleString[observation->offset]) {
-                    totalReadScore_hap1[observation->readNo] += observation->weight;
+                double obvsWeight = 0.0;
+                if (insertNodeH1->base == read->rleRead->rleString[observation->offset]) {
+                    obvsWeight += observation->weight;
                 } else {
-                    totalReadScore_hap1[observation->readNo] -= observation->weight;
+                    obvsWeight -= SUBTRACT_NON_MATCH_SUPPORT ? observation->weight : 0;
                 }
+                totalReadScore_hap1[observation->readNo] += obvsWeight;
 
                 // write
                 if (out != NULL) {
-                    if (o != 0) fprintf(out, ",");
+                    if (!firstWrittenRead) fprintf(out, ",");
                     fprintf(out, "\n     {\n");
                     fprintf(out, "      \"name\": \"%s\",\n", read->readName);
                     fprintf(out, "      \"hap\": 1,\n");
-                    if (insertNodeX->base == read->rleRead->rleString[observation->offset]) {
-                        fprintf(out, "      \"hapSupport\": %f\n", observation->weight);
-                    } else {
-                        fprintf(out, "      \"hapSupport\": %f\n", -1 * observation->weight);
-                    }
+                    fprintf(out, "      \"type\": \"insert\",\n");
+                    fprintf(out, "      \"h1_nucl\": \"%c,%"PRIu64"\",\n",
+                            read->rleRead->rleString[observation->offset], read->rleRead->repeatCounts[observation->offset]);
+                    fprintf(out, "      \"hapSupport\": %f\n", obvsWeight);
                     fprintf(out, "     }");
+                    firstWrittenRead = FALSE;
                 }
             }
+
+            // track H2 delete observations (but only for the "last" insert pos)
+            if (posH1 + 1 == currAlignPosHap1) {
+                for (int64_t distBack = 1; distBack < MAX_DELETE_SIZE + insertLenH1; distBack++) {
+                    int64_t h1NodePos = currAlignPosHap1 - distBack;
+                    if (h1NodePos < 0) continue;
+                    PoaNode *h1NodeForDeletes = stList_get(filteredPoa_hap1->nodes, h1NodePos);
+                    for (int64_t d = 0; d < stList_length(h1NodeForDeletes->deletes); d++) {
+                        PoaDelete *deleteNode = stList_get(h1NodeForDeletes->deletes, d);
+                        if (deleteNode->length <= distBack - insertLenH1) continue;
+                        for (int64_t o = 0; o < stList_length(deleteNode->observations); o++) {
+                            PoaBaseObservation *observation = stList_get(deleteNode->observations, o);
+                            BamChunkRead *read = stList_get(filteredReads, observation->readNo);
+                            totalReadScore_hap2[observation->readNo] += observation->weight;
+
+                            // write
+                            if (out != NULL) {
+                                if (!firstWrittenRead) fprintf(out, ",");
+                                fprintf(out, "\n     {\n");
+                                fprintf(out, "      \"name\": \"%s\",\n", read->readName);
+                                fprintf(out, "      \"hap\": 2,\n");
+                                fprintf(out, "      \"type\": \"delete\",\n");
+                                fprintf(out, "      \"hapSupport\": %f\n", observation->weight);
+                                fprintf(out, "     }");
+                                firstWrittenRead = FALSE;
+                            }
+                        }
+                    }
+                }
+            }
+
             if (out != NULL) {
-                fprintf(out, "    ]\n");
+                fprintf(out, "\n    ]\n");
                 fprintf(out, "   }");
             }
             posH1++;
@@ -238,45 +297,86 @@ void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *
         // H1 gap / H2 insert
         else if (posH2 < currAlignPosHap2) {
             insertH2++;
-            PoaNode *insertNodeY = stList_get(filteredPoa_hap2->nodes, posH2);
+            insertLenH2++;
+            PoaNode *insertNodeH2 = stList_get(filteredPoa_hap2->nodes, posH2);
 
             // write
+            bool firstWrittenRead = TRUE;
             if (out != NULL) {
+                int64_t refPos = (int64_t) (posH1/2 + posH2/2);
+                refPos = bamChunk->chunkBoundaryStart+(refPos >= rleReference->length ? rleReference->length-1 : reference_rleToNonRleCoordMap[refPos]);
                 if (firstBubble) {
                     fprintf(out, "\n   {\n");
                     firstBubble = FALSE;
                 } else {
                     fprintf(out, ",\n   {\n");
                 }
-                fprintf(out, "    \"refPos\": %"PRId64",\n", bamChunk->chunkBoundaryStart + (int) (posH1/2 + posH2/2));
+                fprintf(out, "    \"refPos\": %"PRId64",\n", refPos);
+                fprintf(out, "    \"type\": \"insert\",\n");
+                fprintf(out, "    \"hap\": 2,\n");
+                fprintf(out, "    \"h2_nucl\": \"%c,%"PRIu64"\",\n", insertNodeH2->base, insertNodeH2->repeatCount);
                 fprintf(out, "    \"reads\": [");
             }
 
-            for (int64_t o = 0; o < stList_length(insertNodeY->observations); o++) {
-                PoaBaseObservation *observation = stList_get(insertNodeY->observations, o);
+            // track H2 insert observation
+            for (int64_t o = 0; o < stList_length(insertNodeH2->observations); o++) {
+                PoaBaseObservation *observation = stList_get(insertNodeH2->observations, o);
                 BamChunkRead *read = stList_get(filteredReads, observation->readNo);
-                if (insertNodeY->base == read->rleRead->rleString[observation->offset]) {
-                    totalReadScore_hap2[observation->readNo] += observation->weight;
+                double obvsWeight = 0.0;
+                if (insertNodeH2->base == read->rleRead->rleString[observation->offset]) {
+                    obvsWeight += observation->weight;
                 } else {
-                    totalReadScore_hap2[observation->readNo] -= observation->weight;
+                    obvsWeight -= SUBTRACT_NON_MATCH_SUPPORT ? observation->weight : 0;
                 }
+                totalReadScore_hap2[observation->readNo] += obvsWeight;
 
                 // write
                 if (out != NULL) {
-                    if (o != 0) fprintf(out, ",");
+                    if (!firstWrittenRead) fprintf(out, ",");
                     fprintf(out, "\n     {\n");
                     fprintf(out, "      \"name\": \"%s\",\n", read->readName);
                     fprintf(out, "      \"hap\": 2,\n");
-                    if (insertNodeY->base == read->rleRead->rleString[observation->offset]) {
-                        fprintf(out, "      \"hapSupport\": %f\n", observation->weight);
-                    } else {
-                        fprintf(out, "      \"hapSupport\": %f\n", -1 * observation->weight);
-                    }
+                    fprintf(out, "      \"type\": \"insert\",\n");
+                    fprintf(out, "      \"h2_nucl\": \"%c,%"PRIu64"\",\n",
+                            read->rleRead->rleString[observation->offset], read->rleRead->repeatCounts[observation->offset]);
+                    fprintf(out, "      \"hapSupport\": %f\n", obvsWeight);
                     fprintf(out, "     }");
+                    firstWrittenRead = FALSE;
                 }
             }
+
+            // track H1 delete observations (but only for the "last" insert pos)
+            if (posH2 + 1 == currAlignPosHap2) {
+                for (int64_t distBack = 1; distBack < MAX_DELETE_SIZE + insertLenH2; distBack++) {
+                    int64_t h2NodePos = currAlignPosHap2 - distBack;
+                    if (h2NodePos < 0) continue;
+                    PoaNode *h2NodeForDeletes = stList_get(filteredPoa_hap2->nodes, h2NodePos);
+                    for (int64_t d = 0; d < stList_length(h2NodeForDeletes->deletes); d++) {
+                        PoaDelete *deleteNode = stList_get(h2NodeForDeletes->deletes, d);
+                        if (deleteNode->length <= distBack - insertLenH2) continue;
+                        for (int64_t o = 0; o < stList_length(deleteNode->observations); o++) {
+                            PoaBaseObservation *observation = stList_get(deleteNode->observations, o);
+                            BamChunkRead *read = stList_get(filteredReads, observation->readNo);
+                            totalReadScore_hap1[observation->readNo] += observation->weight;
+
+                            // write
+                            if (out != NULL) {
+                                if (!firstWrittenRead) fprintf(out, ",");
+                                fprintf(out, "\n     {\n");
+                                fprintf(out, "      \"name\": \"%s\",\n", read->readName);
+                                fprintf(out, "      \"hap\": 1,\n");
+                                fprintf(out, "      \"type\": \"delete\",\n");
+                                fprintf(out, "      \"hapSupport\": %f\n", observation->weight);
+                                fprintf(out, "     }");
+                                firstWrittenRead = FALSE;
+                            }
+                        }
+                    }
+                }
+            }
+
             if (out != NULL) {
-                fprintf(out, "    ]\n");
+                fprintf(out, "\n    ]\n");
                 fprintf(out, "   }");
             }
             posH2++;
@@ -285,29 +385,38 @@ void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *
         else if (posH1 == currAlignPosHap1 && posH2 == currAlignPosHap2) {
             PoaNode *matchNodeH1 = stList_get(filteredPoa_hap1->nodes, posH1);
             PoaNode *matchNodeH2 = stList_get(filteredPoa_hap2->nodes, posH2);
+            insertLenH1 = 0;
+            insertLenH2 = 0;
             if (matchNodeH1->base != matchNodeH2->base) {
                 mismatch++;
 
                 // write
                 if (out != NULL) {
+                    int64_t refPos = (int64_t) (posH1/2 + posH2/2);
+                    refPos = bamChunk->chunkBoundaryStart+(refPos >= rleReference->length ? rleReference->length-1 : reference_rleToNonRleCoordMap[refPos]);
                     if (firstBubble) {
                         firstBubble = FALSE;
                     } else {
                         fprintf(out, ",");
                     }
                     fprintf(out, "\n   {\n");
-                    fprintf(out, "    \"refPos\": %"PRId64",\n", bamChunk->chunkBoundaryStart + (int) (posH1/2 + posH2/2));
+                    fprintf(out, "    \"refPos\": %"PRId64",\n", refPos);
+                    fprintf(out, "    \"type\": \"mismatch\",\n");
+                    fprintf(out, "    \"h1_nucl\": \"%c,%"PRIu64"\",\n", matchNodeH1->base, matchNodeH1->repeatCount);
+                    fprintf(out, "    \"h2_nucl\": \"%c,%"PRIu64"\",\n", matchNodeH2->base, matchNodeH2->repeatCount);
                     fprintf(out, "    \"reads\": [");
                 }
 
                 for (int64_t o = 0; o < stList_length(matchNodeH1->observations); o++) {
                     PoaBaseObservation *observation = stList_get(matchNodeH1->observations, o);
                     BamChunkRead *read = stList_get(filteredReads, observation->readNo);
+                    double obvsWeight = 0.0;
                     if (matchNodeH1->base == read->rleRead->rleString[observation->offset]) {
-                        totalReadScore_hap1[observation->readNo] += observation->weight;
+                        obvsWeight += observation->weight;
                     } else {
-                        totalReadScore_hap1[observation->readNo] -= observation->weight;
+                        obvsWeight -= SUBTRACT_NON_MATCH_SUPPORT ? observation->weight : 0;
                     }
+                    totalReadScore_hap1[observation->readNo] += obvsWeight;
 
                     // write
                     if (out != NULL) {
@@ -315,22 +424,21 @@ void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *
                         fprintf(out, "\n     {\n");
                         fprintf(out, "      \"name\": \"%s\",\n", read->readName);
                         fprintf(out, "      \"hap\": 1,\n");
-                        if (matchNodeH1->base == read->rleRead->rleString[observation->offset]) {
-                            fprintf(out, "      \"hapSupport\": %f\n", observation->weight);
-                        } else {
-                            fprintf(out, "      \"hapSupport\": %f\n", -1 * observation->weight);
-                        }
+                        fprintf(out, "      \"type\": \"mismatch\",\n");
+                        fprintf(out, "      \"hapSupport\": %f\n", obvsWeight);
                         fprintf(out, "     }");
                     }
                 }
                 for (int64_t o = 0; o < stList_length(matchNodeH2->observations); o++) {
                     PoaBaseObservation *observation = stList_get(matchNodeH2->observations, o);
                     BamChunkRead *read = stList_get(filteredReads, observation->readNo);
+                    double obvsWeight = 0.0;
                     if (matchNodeH2->base == read->rleRead->rleString[observation->offset]) {
-                        totalReadScore_hap2[observation->readNo] += observation->weight;
+                        obvsWeight += observation->weight;
                     } else {
-                        totalReadScore_hap2[observation->readNo] -= observation->weight;
+                        obvsWeight -= SUBTRACT_NON_MATCH_SUPPORT ? observation->weight : 0;
                     }
+                    totalReadScore_hap2[observation->readNo] += obvsWeight;
 
                     // write
                     if (out != NULL) {
@@ -338,11 +446,8 @@ void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *
                         fprintf(out, "\n     {\n");
                         fprintf(out, "      \"name\": \"%s\",\n", read->readName);
                         fprintf(out, "      \"hap\": 2,\n");
-                        if (matchNodeH2->base == read->rleRead->rleString[observation->offset]) {
-                            fprintf(out, "      \"hapSupport\": %f\n", observation->weight);
-                        } else {
-                            fprintf(out, "      \"hapSupport\": %f\n", -1 * observation->weight);
-                        }
+                        fprintf(out, "      \"type\": \"mismatch\",\n");
+                        fprintf(out, "      \"hapSupport\": %f\n", obvsWeight);
                         fprintf(out, "     }");
                     }
                 }
@@ -415,7 +520,8 @@ void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *
 }
 
 void writePhasedReadInfoJSON(BamChunk *bamChunk, stList *primaryReads, stList *primaryAlignments, stList *filteredReads,
-        stList *filteredAlignments, stSet *readsInHap1, stSet *readsInHap2, FILE *out) {
+        stList *filteredAlignments, stSet *readsInHap1, stSet *readsInHap2, uint64_t *reference_rleToNonRleCoordMap,
+        FILE *out) {
 
 
     fprintf(out, ",\n \"reads\": [");
@@ -440,8 +546,8 @@ void writePhasedReadInfoJSON(BamChunk *bamChunk, stList *primaryReads, stList *p
         fprintf(out, "\n  {\n");
         fprintf(out, "     \"name\": \"%s\",\n", read->readName);
         fprintf(out, "     \"strand\": \"%s\",\n", read->forwardStrand ? "+" : "-");
-        fprintf(out, "     \"startPos\": %"PRId64",\n", bamChunk->chunkBoundaryStart + stIntTuple_get(firstAlign, 0));
-        fprintf(out, "     \"endPos\": %"PRId64",\n", bamChunk->chunkBoundaryStart + stIntTuple_get(lastAlign, 0));
+        fprintf(out, "     \"startPos\": %"PRId64",\n", bamChunk->chunkBoundaryStart + reference_rleToNonRleCoordMap[stIntTuple_get(firstAlign, 0)]);
+        fprintf(out, "     \"endPos\": %"PRId64",\n", bamChunk->chunkBoundaryStart + reference_rleToNonRleCoordMap[stIntTuple_get(lastAlign, 0)]);
         fprintf(out, "     \"hap\": %d\n", hap);
         fprintf(out, "  }");
     }
@@ -463,8 +569,8 @@ void writePhasedReadInfoJSON(BamChunk *bamChunk, stList *primaryReads, stList *p
         fprintf(out, ",\n  {\n");
         fprintf(out, "     \"name\": \"%s\",\n", read->readName);
         fprintf(out, "     \"strand\": \"%s\",\n", read->forwardStrand ? "+" : "-");
-        fprintf(out, "     \"startPos\": %"PRId64",\n", bamChunk->chunkBoundaryStart + stIntTuple_get(firstAlign, 0));
-        fprintf(out, "     \"endPos\": %"PRId64",\n", bamChunk->chunkBoundaryStart + stIntTuple_get(lastAlign, 0));
+        fprintf(out, "     \"startPos\": %"PRId64",\n", bamChunk->chunkBoundaryStart + reference_rleToNonRleCoordMap[stIntTuple_get(firstAlign, 0)]);
+        fprintf(out, "     \"endPos\": %"PRId64",\n", bamChunk->chunkBoundaryStart + reference_rleToNonRleCoordMap[stIntTuple_get(lastAlign, 0)]);
         fprintf(out, "     \"hap\": %d\n", hap);
         fprintf(out, "  }");
     }
@@ -479,8 +585,10 @@ void writePhasedReadInfoJSON(BamChunk *bamChunk, stList *primaryReads, stList *p
 void assignFilteredReadsToHaplotypesInParts(BamChunk* bamChunk, BubbleGraph *bg, uint64_t *hap1, uint64_t *hap2,
         RleString *rleReference, stList *reads, stList *alignments, stSet *hap1Reads, stSet *hap2Reads,
         Params *params, int64_t partSize, char *logIdentifier) {
+    //todo delete this function?
+    st_errAbort("NOT IMPLEMENTED");
 
-    stList *remainingReads = reads;
+    /*stList *remainingReads = reads;
     stList *remainingAlignments = alignments;
     int64_t currentIteration = 0;
 
@@ -535,5 +643,5 @@ void assignFilteredReadsToHaplotypesInParts(BamChunk* bamChunk, BubbleGraph *bg,
     if (remainingReads != reads) {
         stList_destruct(remainingReads);
         stList_destruct(remainingAlignments);
-    }
+    }*/
 }
