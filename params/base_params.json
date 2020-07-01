@@ -23,7 +23,7 @@
           "useRepeatCountsInAlignment": true,
           "includeSoftClipping": false,
           "chunkSize": 100000,
-          "chunkBoundary": 20000,
+          "chunkBoundary": 10000,
           "maxDepth": 128,
           "shuffleChunks": true,
           "referenceBasePenalty": 0.5,

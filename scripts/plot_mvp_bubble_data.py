@@ -132,22 +132,20 @@ def main():
     for bubble in json_doc[PRIMARY]:
         primary_bubbles[bubble[REF_POS]] = bubble
         bubble_reads = dict()
-        #bubble_reads = defaultdict(lambda : list())
         for read in bubble[READS]:
             primary_reads.add(read[NAME])
             assert(read[NAME] not in bubble_reads)
             bubble_reads[read[NAME]] = read
-            #bubble_reads[read[NAME]].append(read)
         bubble[READS] = bubble_reads
     for bubble in json_doc[FILTERED]:
         pos=bubble[REF_POS]
-        while pos in filtered_bubbles:
-            pos += 0.1
+        assert(pos not in filtered_bubbles)
         filtered_bubbles[pos] = bubble
-        bubble_reads = defaultdict(lambda : list())
+        bubble_reads = dict()
         for read in bubble[READS]:
+            assert(read[NAME] not in bubble_reads)
             filtered_reads.add(read[NAME])
-            bubble_reads[read[NAME]].append(read)
+            bubble_reads[read[NAME]] = read
         bubble[READS] = bubble_reads
     for read in json_doc[READS]:
         read[PRIMARY] = read[NAME] in primary_reads
@@ -218,30 +216,6 @@ def main():
             else:
                 break
         return best_cpos
-
-    # merge filtered read support to local positions
-    filtered_bubbles_merged = dict()
-    for fb_pos in filtered_bubbles.keys():
-        cpos = closest_position(fb_pos)
-        if cpos not in filtered_bubbles_merged:
-            filtered_bubbles_merged[cpos] = {REF_POS:cpos,READS:{}}
-        for readList in filtered_bubbles[fb_pos][READS].values():
-            for read in readList:
-                readName = read[NAME]
-                if readName not in filtered_bubbles_merged[cpos][READS]:
-                    filtered_bubbles_merged[cpos][READS][readName] = list()
-                filtered_bubbles_merged[cpos][READS][readName].append(read)
-    for fbm in filtered_bubbles_merged.values():
-        for readName in fbm[READS].keys():
-            h1_reads = list(filter(lambda x: x[HAP] == 1, fbm[READS][readName]))
-            h2_reads = list(filter(lambda x: x[HAP] == 2, fbm[READS][readName]))
-            total_score_h1 = sum(map(lambda x: x[HAP_SUPPORT], h1_reads))
-            total_score_h2 = sum(map(lambda x: x[HAP_SUPPORT], h2_reads))
-            is_h1 = total_score_h1 > total_score_h2
-            hap_support = abs(total_score_h2 - total_score_h1) / (len(h1_reads) + len(h2_reads))
-            assert(hap_support <= 10000000)
-            merged_read = {HAP: 1 if is_h1 else 2, READS: fbm[READS][readName], HAP_SUPPORT: hap_support}
-            fbm[READS][readName] = merged_read
 
     # get ordering of primary and filtered reads
     primary_reads_l = list(primary_reads)
@@ -347,28 +321,30 @@ def main():
                         plt.scatter(x,y,marker=marker,color=color,alpha=alpha,edgecolors="black")
                     else:
                         color = "darkblue" if read[HAP] == 1 else ("darkred" if read[HAP] == 2 else "dimgrey")
-                        # plt.scatter(x,y, marker='_', color=color, s=SPACER_POINT_SIZE, alpha=SPACER_POINT_ALPHA)
                         plt.scatter(x,y, marker="4" if read[STRAND] == "+" else "3", s=8, color=color, alpha=SPACER_POINT_ALPHA)
 
                 # plot filtered reads
                 elif name in filtered_reads:
-                    if p in filtered_bubbles_merged:
+                    if p in filtered_bubbles:
+                    # if p in filtered_bubbles_merged:
                         color="grey"
                         marker="_"
                         alpha=1.0
-                        if name in filtered_bubbles_merged[p][READS]:
-                            bub_read = filtered_bubbles_merged[p][READS][name]
-                            alpha = bub_read[HAP_SUPPORT] / 10000000
-                            if bub_read[HAP] == 1:
+                        if name in filtered_bubbles[p][READS]:
+                            bub_read = filtered_bubbles[p][READS][name]
+                            supportH1 = bub_read[HAP_SUPPORT_H1]
+                            supportH2 = bub_read[HAP_SUPPORT_H2]
+                            if supportH1 > supportH2:
                                 color = "blue"
                                 marker = "o"
-                            elif bub_read[HAP] == 2:
+                                alpha = -1 / supportH1
+                            elif supportH2 > supportH1:
                                 color = "red"
                                 marker = "o"
+                                alpha = -1 / supportH2
                         plt.scatter(x,y,marker=marker,color=color,alpha=alpha,edgecolors="black")
                     else:
                         color = "darkblue" if read[HAP] == 1 else ("darkred" if read[HAP] == 2 else "dimgrey")
-                        # plt.scatter(x,y, marker='_', color=color, s=SPACER_POINT_SIZE, alpha=SPACER_POINT_ALPHA)
                         plt.scatter(x,y, marker="4" if read[STRAND] == "+" else "3", s=8, color=color, alpha=SPACER_POINT_ALPHA)
 
     # separate primary, filtered, and haplotypes

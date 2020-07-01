@@ -1195,6 +1195,7 @@ void msaView_printRepeatCounts(MsaView *view, int64_t minInsertCoverage,
 
 typedef struct _bubble {
 	uint64_t refStart; //First inclusive position
+	uint64_t bubbleLength; //length of reference between bubble anchors
 	RleString *refAllele; // The current reference allele
 	uint64_t alleleNo; // Number of alleles
 	RleString **alleles; // Array of allele strings, each an RLE string
@@ -1291,6 +1292,14 @@ double bubbleGraph_skewedBubbles(BubbleGraph *bg, stHash *readsToPSeqs, stGenome
 double binomialPValue(int64_t n, int64_t k);
 
 uint128_t bionomialCoefficient(int64_t n, int64_t k);
+
+/*
+ * Phases reads based on existing partition
+ */
+BubbleGraph *bubbleGraph_partitionFilteredReads(Poa *poa, stList *bamChunkReads, stGenomeFragment *gF,
+												BubbleGraph *bg, BamChunk *bamChunk, uint64_t *reference_rleToNonRleCoordMap,
+                                                stSet *hap1Reads, stSet *hap2Reads, PolishParams *params, FILE *out,
+                                                char *logIdentifier);
 
 /*
  * For tracking Bubble Graph stuff
@@ -1412,17 +1421,10 @@ stSet *bamChunkRead_to_readName(stSet *bamChunkReads);
 stList *copyListOfIntTuples(stList *toCopy);
 double toPhred(double prob);
 double fromPhred(double phred);
-void assignFilteredReadsToHaplotypes(BubbleGraph *bg, uint64_t *hap1, uint64_t *hap2, RleString *rleReference,
-                                     uint64_t *reference_rleToNonRleCoordMap, stList *filteredReads,
-                                     stList *filteredAlignments, stSet *hap1Reads, stSet *hap2Reads, Params *params,
-                                     BamChunk *bamChunk, FILE *out);
-void assignFilteredReadsToHaplotypesInParts(BamChunk* bamChunk, BubbleGraph *bg, uint64_t *hap1, uint64_t *hap2,
-											RleString *rleReference, stList *reads, stList *alignments,
-											stSet *hap1Reads, stSet *hap2Reads,
-											Params *params, int64_t partSize, char *logIdentifier);
 void writePhasedReadInfoJSON(BamChunk *bamChunk, stList *primaryReads, stList *primaryAlignments, stList *filteredReads,
                              stList *filteredAlignments, stSet *readsInHap1, stSet *readsInHap2,
                              uint64_t *reference_rleToNonRleCoordMap, FILE *out);
+void removeReadsStartingAfterChunkEnd(BamChunk *bamChunk, stList *reads, stList *alignments, char *logIdentifier);
 /*
  * HELEN Features
  */

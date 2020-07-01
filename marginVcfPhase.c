@@ -425,6 +425,8 @@ int main(int argc, char *argv[]) {
                 stList_destruct(maintainedAlignments);
             }
         }
+        // these will be phased better in the next chunk
+        removeReadsStartingAfterChunkEnd(bamChunk, reads, alignments, logIdentifier);
 
         // prep for ploishing
         Poa *poa = NULL; // The poa alignment
@@ -533,13 +535,15 @@ int main(int argc, char *argv[]) {
                     stList_append(filteredAlignments, copyListOfIntTuples(stList_get(alignments, bcrIdx)));
                 }
             }
-            st_logInfo(" %s Attempting to assign %"PRId64" filtered reads to haplotypes\n", logIdentifier, stList_length(filteredReads));
-            // do the final read filtering
-            assignFilteredReadsToHaplotypes(bg, hap1, hap2, rleReference, reference_rleToNonRleCoordMap,
-                    filteredReads, filteredAlignments, readsBelongingToHap1, readsBelongingToHap2, params, bamChunk,
-                    chunkBubbleOut);
-        }
+            st_logInfo(" %s Assigning %"PRId64" filtered reads to haplotypes\n", logIdentifier, stList_length(filteredReads));
+            removeReadsStartingAfterChunkEnd(bamChunk, filteredReads, filteredAlignments, logIdentifier);
 
+            Poa *filteredPoa = poa_realign(filteredReads, filteredAlignments, rleReference, params->polishParams);
+            bubbleGraph_partitionFilteredReads(filteredPoa, filteredReads, gf, bg, bamChunk,
+                    reference_rleToNonRleCoordMap, readsBelongingToHap1, readsBelongingToHap2, params->polishParams,
+                    chunkBubbleOut, logIdentifier);
+            poa_destruct(filteredPoa);
+        }
 
         // debugging output for state
         if (outputPhasingState) {

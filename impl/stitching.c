@@ -294,6 +294,28 @@ int64_t sizeOfIntersection(stHash *pSet, stHash *nSet) {
     return i;
 }
 
+int64_t sizeOfIntersectionWithNonNegativeValues(stHash *pSet, stHash *nSet) {
+    /*
+     * Returns the number of keys in nSet also in pSet.
+     */
+    stHashIterator *it = stHash_getIterator(nSet);
+    int64_t i = 0;
+    char *readName;
+    while ((readName = stHash_getNext(it)) != NULL) {
+        double nLikelihood = *((double*) stHash_search(nSet, readName));
+        if (nLikelihood < 0)
+            continue;
+        if ((stHash_search(pSet, readName)) != NULL) {
+            double pLikelihood = *((double*) stHash_search(pSet, readName));
+            if (pLikelihood < 0)
+                continue;
+            i++;
+        }
+    }
+    stHash_destructIterator(it);
+    return i;
+}
+
 void chunkToStitch_phaseAdjacentChunks(ChunkToStitch *chunk, stHash *readsInHap1, stHash *readsInHap2) {
     /*
      * Phases chunk so that hap1 in chunk corresponds to hap1 in the prior chunks (as best as we can tell).
@@ -304,10 +326,10 @@ void chunkToStitch_phaseAdjacentChunks(ChunkToStitch *chunk, stHash *readsInHap1
     stHash *chunkHap2Reads = getReadNames(chunk->readsHap2Lines);
 
     // Calculate the intersection between reads shared between the chunks
-    int64_t i = sizeOfIntersection(readsInHap1, chunkHap1Reads);
-    int64_t j = sizeOfIntersection(readsInHap1, chunkHap2Reads);
-    int64_t k = sizeOfIntersection(readsInHap2, chunkHap1Reads);
-    int64_t l = sizeOfIntersection(readsInHap2, chunkHap2Reads);
+    int64_t i = sizeOfIntersectionWithNonNegativeValues(readsInHap1, chunkHap1Reads);
+    int64_t j = sizeOfIntersectionWithNonNegativeValues(readsInHap1, chunkHap2Reads);
+    int64_t k = sizeOfIntersectionWithNonNegativeValues(readsInHap2, chunkHap1Reads);
+    int64_t l = sizeOfIntersectionWithNonNegativeValues(readsInHap2, chunkHap2Reads);
 
     // Calculate support for the cis (keeping the current relative phasing) and the trans (switching the phasing) configurations
     int64_t cisPhase = i + l; // Number of reads consistently phased in cis configuration
@@ -728,6 +750,7 @@ void outputChunker_processChunkSequencePhased(OutputChunker *outputChunker, int6
         }
     }
     stSet_destructIterator(itor);
+    fflush(outputChunker->outputReadPartitionFileHandle);
 
     // Cleanup
     free(headerLinePrefix);

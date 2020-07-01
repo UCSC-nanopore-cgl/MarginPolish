@@ -450,8 +450,9 @@ stList *filterReadsByCoverageDepth(stList *profileSeqs, stRPHmmParameters *param
      */
 
     // Create a set of tiling paths
+    char *logIdentifier = getLogIdentifier();
     stList *tilingPaths = getTilingPaths2(profileSeqs, params);
-    st_logDebug("Got maximum tiling depth of: %i\n", (int) stList_length(tilingPaths));
+    st_logDebug(" %s Got maximum tiling depth of: %i\n", logIdentifier, (int) stList_length(tilingPaths));
 
     // Sort tiling paths my numbers of reads included
     stHash *tilingPathLengths = stHash_construct2(NULL, free);
@@ -467,8 +468,8 @@ stList *filterReadsByCoverageDepth(stList *profileSeqs, stRPHmmParameters *param
     // Eliminate reads until the maximum coverage depth to less than the give threshold
     while (stList_length(tilingPaths) > params->maxCoverageDepth) {
         stList *tilingPath = stList_pop(tilingPaths);
-        st_logDebug("Discarding %i profiling sequences of total length: %i\n", (int) stList_length(tilingPath),
-                    (int) tilingPathSize(tilingPath));
+        st_logDebug(" %s Discarding %i profiling sequences of total length: %i\n", logIdentifier,
+                (int) stList_length(tilingPath), (int) tilingPathSize(tilingPath));
         getProfileSeqs(tilingPath, discardedProfileSeqs);
     }
 
@@ -476,13 +477,13 @@ stList *filterReadsByCoverageDepth(stList *profileSeqs, stRPHmmParameters *param
         getProfileSeqs(stList_pop(tilingPaths), filteredProfileSeqs);
     }
 
+    st_logInfo(" %s Filtered %" PRIi64 " reads of %" PRIi64 " to achieve maximum coverage depth of %" PRIi64 "\n",
+               logIdentifier, stList_length(discardedProfileSeqs), stList_length(profileSeqs),
+               params->maxCoverageDepth);
+
     // Cleanup
     stList_destruct(tilingPaths);
-
-    st_logInfo("\tFiltered %" PRIi64 " reads of %" PRIi64
-               " to achieve maximum coverage depth of %" PRIi64 "\n",
-               stList_length(discardedProfileSeqs), stList_length(profileSeqs),
-               params->maxCoverageDepth);
+    free(logIdentifier);
 
     return filteredProfileSeqs;
 }
