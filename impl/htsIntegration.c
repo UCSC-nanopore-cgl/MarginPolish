@@ -999,9 +999,6 @@ void writeHaplotaggedBam(BamChunk *bamChunk, char *inputBamLocation, char *outpu
             continue; //secondary
         if (!params->polishParams->includeSupplementaryAlignments && (aln->core.flag & (uint16_t) 0x800) != 0)
             continue; //supplementary
-        if(aln->core.qual < params->polishParams->filterAlignmentsWithMapQBelowThisThreshold)
-            continue; //low mapping quality
-
 
         char *readName = bam_get_qname(aln);
         bool has_tag = bam_aux_get(aln, "HT") == NULL;

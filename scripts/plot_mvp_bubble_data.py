@@ -28,6 +28,8 @@ def parse_args(args = None):
                         help='Print extra information on plot')
     parser.add_argument('--figure_name', '-f', dest='figure_name', default=None, required=False, type=str,
                         help='Figure name (will save if set)')
+    parser.add_argument('--figure_title', '-t', dest='figure_title', default=None, required=False, type=str,
+                        help='Figure title')
 
     return parser.parse_args() if args is None else parser.parse_args(args)
 
@@ -355,6 +357,10 @@ def main():
     # describe het sites
     plt.xticks(xpos_ticks, xpos_labels, rotation=45, fontsize=10)
     plt.yticks([],[])
+
+    # final adjustments
+    if (args.figure_title is not None):
+        plt.title(args.figure_title)
     plt.tight_layout()
     if args.figure_name is not None:
         plt.savefig(args.figure_name, dpi=360)
