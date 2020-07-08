@@ -24,6 +24,8 @@ void vcfEntry_destruct(VcfEntry *vcfEntry) {
 
 #define GQ_WEIGHT .8
 #define  Q_WEIGHT .2
+#define DEFAULT_MIN_VCF_QUAL -1
+
 stList *parseVcf2(char *vcfFile, bool hetOnly, PolishParams *params) {
     stList *entries = stList_construct3(0, (void(*)(void*))vcfEntry_destruct);
     FILE *fp = fopen(vcfFile, "r");
@@ -84,7 +86,7 @@ stList *parseVcf2(char *vcfFile, bool hetOnly, PolishParams *params) {
         // get variant quality
         double variantQuality = -1;
         double genotypeQuality = -1;
-        double quality = -1;
+        double quality = DEFAULT_MIN_VCF_QUAL;
         if (gqIdx != -1) {
             genotypeQuality = atof(stList_get(sample,gqIdx));
         }
@@ -142,17 +144,32 @@ stList *parseVcf(char *vcfFile, PolishParams *params) {
     return parseVcf2(vcfFile, TRUE, params);
 }
 
-
-stList *getVcfEntriesForRegion(stList *vcfEntries, char *refSeqName, int64_t startPos, int64_t endPos) {
+stList *getVcfEntriesForRegion2(stList *vcfEntries, char *refSeqName, int64_t startPos, int64_t endPos, double minQual) {
     stList *regionEntries = stList_construct3(0, (void(*)(void*))vcfEntry_destruct);
+    int64_t qualityFilteredCount = 0;
     for (int64_t i = 0; i < stList_length(vcfEntries); i++) {
         VcfEntry *e = stList_get(vcfEntries, i);
         if (!stString_eq(refSeqName, e->refSeqName)) continue;
         if (startPos > e->refPos) continue;
         if (endPos <= e->refPos) continue;
+        if (minQual > e->phredQuality) {
+            qualityFilteredCount++;
+            continue;
+        }
         VcfEntry *copy = vcfEntry_construct(e->refSeqName, e->refPos - startPos, e->phredQuality,
                 rleString_copy(e->allele1), rleString_copy(e->allele2));
         stList_append(regionEntries, copy);
     }
+    if (minQual != DEFAULT_MIN_VCF_QUAL) {
+        char *logIdentifier = getLogIdentifier();
+        st_logInfo(" %s Filtered %"PRIu64" VCF records for quality below %.2f, with %"PRIu64" remaining.\n",
+                   logIdentifier, minQual, stList_length(regionEntries));
+        free(logIdentifier);
+    }
     return regionEntries;
+}
+
+
+stList *getVcfEntriesForRegion(stList *vcfEntries, char *refSeqName, int64_t startPos, int64_t endPos) {
+    return getVcfEntriesForRegion2(vcfEntries, refSeqName, startPos, endPos, DEFAULT_MIN_VCF_QUAL);
 }

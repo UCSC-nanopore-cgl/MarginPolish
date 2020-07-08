@@ -2,7 +2,6 @@
 	"include" : "../base_params.json",
 	"polish": {
 		"useRunLengthEncoding" : false,
-		"useRepeatCountsInAlignment": false,
-		"shuffleChunks" : false
+		"useRepeatCountsInAlignment": false
 	}
 }

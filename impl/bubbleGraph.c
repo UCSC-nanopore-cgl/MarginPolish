@@ -700,6 +700,8 @@ void updateCandidateVariantPositionsByVcfEntries(bool *candidateVariantPositions
             else        tn++;
         }
 
+        //TODO testcode
+        //candidateVariantPositions[i] = isVCF && isCVP;
         candidateVariantPositions[i] = isVCF;
         if (vcfEntry != NULL && vcfEntry->refPos <= i) {
             vcfEntry = stList_getNext(itor);
@@ -708,7 +710,7 @@ void updateCandidateVariantPositionsByVcfEntries(bool *candidateVariantPositions
     char *logIdentifier = getLogIdentifier();
     st_logInfo(" %s Of %"PRId64" positions, got %"PRId64" TP, %"PRId64" FP, %"PRId64" FN, %"PRId64" TN, "
                "equating to a variation rate of %.5f, precision of %.5f, and recall of %.5f.\n",
-            logIdentifier, cvpLength, tp, fp, fn, tn, 1.0*(tp+fn)/cvpLength, 1.0*tp/(tp+fp), 1.0*tp/(tp+fn));
+               logIdentifier, cvpLength, tp, fp, fn, tn, 1.0*(tp+fn)/cvpLength, 1.0*tp/(tp+fp), 1.0*tp/(tp+fn));
     free(logIdentifier);
 
     stList_destructIterator(itor);
@@ -1280,7 +1282,9 @@ BubbleGraph *bubbleGraph_partitionFilteredReads(Poa *poa, stList *bamChunkReads,
     }
 
     // write to output
-    fprintf(out, "\n ]");
+    if (out != NULL) {
+        fprintf(out, "\n ]");
+    }
 
     // get scores and save to appropriate sets
     int64_t totalNoScoreLength = 0;

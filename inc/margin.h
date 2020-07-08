@@ -1403,6 +1403,7 @@ VcfEntry *vcfEntry_construct(char *refSeqName, int64_t refPos, double phredQuali
 void vcfEntry_destruct(VcfEntry *vcfEntry);
 stList *parseVcf(char *vcfFile, PolishParams *params);
 stList *getVcfEntriesForRegion(stList *vcfEntries, char *refSeqName, int64_t startPos, int64_t endPos);
+stList *getVcfEntriesForRegion2(stList *vcfEntries, char *refSeqName, int64_t startPos, int64_t endPos, double minQual);
 BubbleGraph *bubbleGraph_constructFromPoaAndVCF(Poa *poa, stList *bamChunkReads, stList *vcfEntries,
                                                 PolishParams *params, bool phasing);
 
