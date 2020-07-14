@@ -688,9 +688,19 @@ void updateCandidateVariantPositionsByVcfEntries(bool *candidateVariantPositions
     int64_t fn = 0;
     int64_t fp = 0;
     int64_t tp = 0;
+    char *logIdentifier = getLogIdentifier();
     for (int64_t i = 0; i < cvpLength; i++) {
         bool isCVP = candidateVariantPositions[i];
         bool isVCF = vcfEntry != NULL && vcfEntry->refPos == i;
+        if (isVCF && st_getLogLevel() == debug) {
+            char *a1 = rleString_expand(vcfEntry->allele1);
+            char *a2 = rleString_expand(vcfEntry->allele1);
+            st_logDebug(" %s  Variant at %s:%"PRId64" (%"PRId64") with quality %5.3f and alleles %s, %s is %s\n",
+                    logIdentifier, vcfEntry->refSeqName, vcfEntry->refPos, vcfEntry->rawRefPosInformativeOnly,
+                    vcfEntry->phredQuality, a1, a2, isCVP ? "TP" : "FN");
+            free(a1);
+            free(a2);
+        }
 
         if (isCVP) {
             if (isVCF)  tp++;
@@ -700,14 +710,11 @@ void updateCandidateVariantPositionsByVcfEntries(bool *candidateVariantPositions
             else        tn++;
         }
 
-        //TODO testcode
-        //candidateVariantPositions[i] = isVCF && isCVP;
         candidateVariantPositions[i] = isVCF;
         if (vcfEntry != NULL && vcfEntry->refPos <= i) {
             vcfEntry = stList_getNext(itor);
         }
     }
-    char *logIdentifier = getLogIdentifier();
     st_logInfo(" %s Of %"PRId64" positions, got %"PRId64" TP, %"PRId64" FP, %"PRId64" FN, %"PRId64" TN, "
                "equating to a variation rate of %.5f, precision of %.5f, and recall of %.5f.\n",
                logIdentifier, cvpLength, tp, fp, fn, tn, 1.0*(tp+fn)/cvpLength, 1.0*tp/(tp+fp), 1.0*tp/(tp+fn));
@@ -1235,6 +1242,7 @@ BubbleGraph *bubbleGraph_partitionFilteredReads(Poa *poa, stList *bamChunkReads,
             }
             int64_t trueRefStartPos = bamChunk->chunkBoundaryStart + reference_rleToNonRleCoordMap[b->refStart];
             fprintf(out, "   \"refPos\": %"PRId64",\n", trueRefStartPos);
+            fprintf(out, "   \"rleRefPos\": %"PRId64",\n", b->refStart);
             fprintf(out, "   \"reads\": [");
         }
 
@@ -1487,9 +1495,9 @@ void bubbleGraph_logPhasedBubbleGraph(BubbleGraph *bg, stRPHmm *hmm, stList *pat
                 double strandSkew = bubble_phasedStrandSkew(b, readsToPSeqs, gF);
 
                 st_logDebug(
-                        ">>Phasing Bubble Graph: (Het: %s) At site: %i (of %i) with %i potential alleles got %s (%i) (log-prob: %f) for hap1 with %i reads and %s (%i) (log-prob: %f) for hap2 with %i reads (total depth %i), and ancestral allele %s (%i), genotype prob: %f, strand-skew p-value: %f\n",
+                        ">>Phasing Bubble Graph: (Het: %s) At site: %i / %i (pos %i) with %i potential alleles got %s (%i) (log-prob: %f) for hap1 with %i reads and %s (%i) (log-prob: %f) for hap2 with %i reads (total depth %i), and ancestral allele %s (%i), genotype prob: %f, strand-skew p-value: %f\n",
                         gF->haplotypeString1[i] != gF->haplotypeString2[i] ? "True" : "False", (int) i,
-                        (int) gF->length, (int) b->alleleNo,
+                        (int) gF->length, (int) b->refStart, (int) b->alleleNo,
                         b->alleles[gF->haplotypeString1[i]]->rleString, (int) gF->haplotypeString1[i],
                         gF->haplotypeProbs1[i], popcount64(cell->partition),
                         b->alleles[gF->haplotypeString2[i]]->rleString, (int) gF->haplotypeString2[i],
@@ -1598,6 +1606,7 @@ void bubbleGraph_saveBubblePhasingInfo(BamChunk *bamChunk, BubbleGraph *bg, stHa
         int64_t trueRefStartPos = bamChunk->chunkBoundaryStart + reference_rleToNonRleCoordMap[b->refStart];
         double strandSkew = bubble_phasedStrandSkew(b, readsToPSeqs, gF);
         fprintf(out, "   \"refPos\": %"PRId64",\n", trueRefStartPos);
+        fprintf(out, "   \"rleRefPos\": %"PRId64",\n", b->refStart);
         fprintf(out, "   \"strandSkew\": %f,\n", strandSkew);
 
         // read info
@@ -1609,7 +1618,6 @@ void bubbleGraph_saveBubblePhasingInfo(BamChunk *bamChunk, BubbleGraph *bg, stHa
             fprintf(out, "\n    {\n");
 
             BamChunkReadSubstring *bcrSubstring = b->reads[j];
-            stProfileSeq *pSeq = stHash_search(readsToPSeqs, bcrSubstring->read);
 
             // read info
             char* readName = bcrSubstring->read->readName;
@@ -1617,24 +1625,8 @@ void bubbleGraph_saveBubblePhasingInfo(BamChunk *bamChunk, BubbleGraph *bg, stHa
             fprintf(out, "     \"name\": \"%s\",\n", readName);
             fprintf(out, "     \"qual\": %f,\n", qualVal);
 
-            bool inHap1 = FALSE;
-            bool inHap2 = FALSE;
             double readHap1Support = b->alleleReadSupports[hap1AlleleNo * b->readNo + j];
             double readHap2Support = b->alleleReadSupports[hap2AlleleNo * b->readNo + j];
-
-            if (stSet_search(gF->reads1, pSeq) != NULL) {
-                inHap1 = TRUE;
-            }
-
-            if (stSet_search(gF->reads2, pSeq) != NULL) {
-                inHap2 = TRUE;
-            }
-
-            if (inHap1 == inHap2) {
-                fprintf(out, "     \"hap\": %d,\n", 0);
-            } else {
-                fprintf(out, "     \"hap\": %d,\n", inHap1 ? 1 : 2);
-            }
             fprintf(out, "     \"hapSupportH1\": %f,\n", readHap1Support);
             fprintf(out, "     \"hapSupportH2\": %f\n", readHap2Support);
             fprintf(out, "    }");

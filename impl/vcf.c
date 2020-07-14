@@ -4,11 +4,12 @@
 
 #include "margin.h"
 
-VcfEntry *vcfEntry_construct(char *refSeqName, int64_t refPos, double phredQuality,
+VcfEntry *vcfEntry_construct(char *refSeqName, int64_t refPos, int64_t rawRefPos, double phredQuality,
         RleString *allele1, RleString *allele2) {
     VcfEntry *vcfEntry = st_calloc(1, sizeof(VcfEntry));
     vcfEntry->refSeqName = stString_copy(refSeqName);
     vcfEntry->refPos = refPos;
+    vcfEntry->rawRefPosInformativeOnly = rawRefPos;
     vcfEntry->phredQuality = phredQuality;
     vcfEntry->allele1 = allele1;
     vcfEntry->allele2 = allele2;
@@ -71,16 +72,18 @@ stList *parseVcf2(char *vcfFile, bool hetOnly, PolishParams *params) {
             st_logInfo("  Unexpected genotype str '%s' in VCF line:\n\t\t%s\n", genotypeStr, line);
             continue;
         }
+
+        // init gt to ref
+        int64_t gt1 = 0;
+        int64_t gt2 = 0;
+
         // early fail
-        if (genotypeStr[0] == '.') {
-            stList_destruct(sample);
-            stList_destruct(format);
-            stList_destruct(elements);
-            free(line);
-            continue;
+        if (genotypeStr[0] != '.') {
+            gt1 = genotypeStr[0] - '0';
         }
-        int64_t gt1 = genotypeStr[0] - '0';
-        int64_t gt2 = genotypeStr[2] - '0';
+        if (genotypeStr[2] != '.') {
+            gt2 = genotypeStr[2] - '0';
+        }
         assert(gt1 >= 0 && gt2 >=0);
 
         // get variant quality
@@ -120,7 +123,7 @@ stList *parseVcf2(char *vcfFile, bool hetOnly, PolishParams *params) {
                                                                  : rleString_construct_no_rle(allele1);
             RleString *rleAllele2 = params->useRunLengthEncoding ? rleString_construct(allele2)
                                                                  : rleString_construct_no_rle(allele2);
-            VcfEntry *entry = vcfEntry_construct(chrom, pos, variantQuality, rleAllele1, rleAllele2);
+            VcfEntry *entry = vcfEntry_construct(chrom, pos, pos, variantQuality, rleAllele1, rleAllele2);
             stList_append(entries, entry);
         }
 
@@ -141,7 +144,7 @@ stList *parseVcf2(char *vcfFile, bool hetOnly, PolishParams *params) {
     return entries;
 }
 stList *parseVcf(char *vcfFile, PolishParams *params) {
-    return parseVcf2(vcfFile, TRUE, params);
+    return parseVcf2(vcfFile, FALSE, params);
 }
 
 stList *getVcfEntriesForRegion2(stList *vcfEntries, char *refSeqName, int64_t startPos, int64_t endPos, double minQual) {
@@ -156,7 +159,7 @@ stList *getVcfEntriesForRegion2(stList *vcfEntries, char *refSeqName, int64_t st
             qualityFilteredCount++;
             continue;
         }
-        VcfEntry *copy = vcfEntry_construct(e->refSeqName, e->refPos - startPos, e->phredQuality,
+        VcfEntry *copy = vcfEntry_construct(e->refSeqName, e->refPos - startPos, e->rawRefPosInformativeOnly, e->phredQuality,
                 rleString_copy(e->allele1), rleString_copy(e->allele2));
         stList_append(regionEntries, copy);
     }

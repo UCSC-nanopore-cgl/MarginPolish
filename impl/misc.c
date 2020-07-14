@@ -232,3 +232,80 @@ void writePhasedReadInfoJSON(BamChunk *bamChunk, stList *primaryReads, stList *p
         fprintf(out, "\n ]");
     }
 }
+
+
+stList *produceVcfEntriesFromBubbleGraph(BamChunk *bamChunk, BubbleGraph *bg, stHash *readsToPSeqs,
+                                         stGenomeFragment *gF, double strandSkewThreshold,
+                                         double readSkewThreshold) {
+
+    stList *vcfEntries = stList_construct3(0, (void(*)(void*))vcfEntry_destruct);
+
+    char *logIdentifier = getLogIdentifier();
+    int64_t passes = 0;
+    int64_t total = 0;
+    int64_t failsStrandSkew = 0;
+    int64_t failsReadSkew = 0;
+    for (uint64_t i = 0; i < gF->length; i++) {
+
+        // bubble and hap info
+        Bubble *b = &bg->bubbles[gF->refStart + i];
+        RleString *hap1 = b->alleles[gF->haplotypeString1[i]];
+        RleString *hap2 = b->alleles[gF->haplotypeString2[i]];
+
+        // we only care about hets
+        if (hap1 == hap2) continue;
+
+        // read info
+        int64_t hap1AlleleNo = gF->haplotypeString1[i];
+        int64_t hap2AlleleNo = gF->haplotypeString2[i];
+        int64_t totalReads = 0;
+        int64_t hap1Reads = 0;
+        for (uint64_t j = 0; j < b->readNo; j++) {
+
+            double readHap1Support = b->alleleReadSupports[hap1AlleleNo * b->readNo + j];
+            double readHap2Support = b->alleleReadSupports[hap2AlleleNo * b->readNo + j];
+
+            if (readHap1Support != readHap2Support) {
+                totalReads++;
+                if (readHap1Support > readHap2Support) {
+                    hap1Reads++;
+                }
+            }
+        }
+
+        // bubble skew info
+        double strandSkew = bubble_phasedStrandSkew(b, readsToPSeqs, gF);
+        double readSupportSkew = binomialPValue(totalReads, hap1Reads); // 1-bpv = prob of having a less extreme
+
+        bool pass = TRUE;
+        if (strandSkew < strandSkewThreshold) {
+            failsStrandSkew++;
+            pass = FALSE;
+        }
+        if (readSupportSkew < readSkewThreshold) {
+            failsReadSkew++;
+            pass = FALSE;
+        }
+
+        // maybe save to vcf entry
+        uint64_t bubblePos = (uint64_t ) (b->refStart + b->bubbleLength / 2);
+        if (pass) {
+            stList_append(vcfEntries, vcfEntry_construct(bamChunk->refSeqName, bubblePos, -1, -1, rleString_copy(hap1),
+                                                         rleString_copy(hap2)));
+            passes++;
+        }
+        total++;
+
+        //loggit
+        st_logInfo(" %s Bubble at %"PRIu64" has strand skew %.5f%s and read support skew %.5f%s (%2"PRId64":%-2"PRId64" ): %s\n",
+                logIdentifier, bubblePos, strandSkew, strandSkew < strandSkewThreshold ? "*" : " ",
+                readSupportSkew, readSupportSkew < readSkewThreshold ? "*" : " ", hap1Reads, totalReads-hap1Reads,
+                pass ? "PASS" : "FAIL");
+    }
+
+    //loggit
+    st_logInfo(" %s Kept %"PRId64" of %"PRId64" bubbles after quality filtering. Failures: %"PRId64" strand, %"PRId64" reads\n",
+            logIdentifier, passes, total, failsStrandSkew, failsReadSkew);
+    free(logIdentifier);
+    return vcfEntries;
+}

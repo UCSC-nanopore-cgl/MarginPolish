@@ -1394,14 +1394,17 @@ ChunkToStitch *mergeContigChunkzThreaded(ChunkToStitch **chunks, int64_t startId
 struct _vcfEntry {
     char *refSeqName;
     int64_t refPos;
+    int64_t rawRefPosInformativeOnly;
     double phredQuality;
     RleString *allele1;
     RleString *allele2;
 };
 
-VcfEntry *vcfEntry_construct(char *refSeqName, int64_t refPos, double phredQuality, RleString *allele1, RleString *allele2);
+VcfEntry *vcfEntry_construct(char *refSeqName, int64_t refPos, int64_t rawRefPos, double phredQuality,
+        RleString *allele1, RleString *allele2);
 void vcfEntry_destruct(VcfEntry *vcfEntry);
 stList *parseVcf(char *vcfFile, PolishParams *params);
+stList *parseVcf2(char *vcfFile, bool hetOnly, PolishParams *params);
 stList *getVcfEntriesForRegion(stList *vcfEntries, char *refSeqName, int64_t startPos, int64_t endPos);
 stList *getVcfEntriesForRegion2(stList *vcfEntries, char *refSeqName, int64_t startPos, int64_t endPos, double minQual);
 BubbleGraph *bubbleGraph_constructFromPoaAndVCF(Poa *poa, stList *bamChunkReads, stList *vcfEntries,
@@ -1426,6 +1429,9 @@ void writePhasedReadInfoJSON(BamChunk *bamChunk, stList *primaryReads, stList *p
                              stList *filteredAlignments, stSet *readsInHap1, stSet *readsInHap2,
                              uint64_t *reference_rleToNonRleCoordMap, FILE *out);
 void removeReadsStartingAfterChunkEnd(BamChunk *bamChunk, stList *reads, stList *alignments, char *logIdentifier);
+stList *produceVcfEntriesFromBubbleGraph(BamChunk *bamChunk, BubbleGraph *bg, stHash *readsToPSeqs,
+										 stGenomeFragment *gF, double strandSkewThreshold,
+										 double readSkewThreshold);
 /*
  * HELEN Features
  */

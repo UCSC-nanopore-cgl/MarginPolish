@@ -28,6 +28,8 @@ def parse_args(args = None):
                         help='Print extra information on plot')
     parser.add_argument('--figure_name', '-f', dest='figure_name', default=None, required=False, type=str,
                         help='Figure name (will save if set)')
+    parser.add_argument('--figure_name_input', '-F', dest='figure_name_input', default=False, required=False, action='store_true',
+                        help='Figure name should be based off of input file (-f overrides this)')
     parser.add_argument('--figure_title', '-t', dest='figure_title', default=None, required=False, type=str,
                         help='Figure title')
 
@@ -155,6 +157,8 @@ def main():
         if read[HAP] == 1: hap1_reads.add(read[NAME])
         if read[HAP] == 2: hap2_reads.add(read[NAME])
         else: hap0_reads.add(read[NAME])
+        # this assert fails if a primary read is not called (which can happen) a copy is made which is typed (later is accurate)
+        #assert(read[NAME]) not in read_data
         # save read
         read_data[read[NAME]] = read
     log("Parsed {} primary bubbles, {} filtered bubbles, and {} reads".format(len(json_doc[PRIMARY]), len(json_doc[FILTERED]),
@@ -222,12 +226,12 @@ def main():
     # get ordering of primary and filtered reads
     primary_reads_l = list(primary_reads)
     primary_reads_l.sort(key=lambda x: read_data[x][START_POS]*300000000+read_data[x][END_POS])
-    primary_reads_h1 = list(filter(lambda x: x in truth_h1, primary_reads_l))
-    primary_reads_h2 = list(filter(lambda x: x in truth_h2, primary_reads_l))
+    primary_reads_h1 = list(filter(lambda x: x in hap1_reads, primary_reads_l))
+    primary_reads_h2 = list(filter(lambda x: x in hap2_reads, primary_reads_l))
     filtered_reads_l = list(filtered_reads)
     filtered_reads_l.sort(key=lambda x: read_data[x][START_POS]*300000000+read_data[x][END_POS])
-    filtered_reads_h1 = list(filter(lambda x: x in truth_h1 and x not in primary_reads, filtered_reads_l))
-    filtered_reads_h2 = list(filter(lambda x: x in truth_h2 and x not in primary_reads, filtered_reads_l))
+    filtered_reads_h1 = list(filter(lambda x: x in hap1_reads and x not in primary_reads, filtered_reads_l))
+    filtered_reads_h2 = list(filter(lambda x: x in hap2_reads and x not in primary_reads, filtered_reads_l))
 
     # helper for getting non-overlapping read lists
     def generate_non_overlapping_read_list(input_read_names):
@@ -288,6 +292,8 @@ def main():
     for read in read_data.values():
         # first iterate over reads (ypos)
         name = read[NAME]
+        if name.startswith("31a454ab"):
+            pass
         if name not in ypos_map:
             continue
         y = ypos_map[name]
@@ -299,7 +305,7 @@ def main():
             if read[START_POS] <= p < read[END_POS]:
                 # verbose means we log read names
                 if firstReadPos and args.verbose:
-                    plt.annotate(name if len(name) < 8 else name[:8], (x-1, y-.5), fontfamily='monospace', fontsize=6)
+                    plt.annotate(name if len(name) < 8 else name[0:8], (x-1, y-.5), fontfamily='monospace', fontsize=6)
                     firstReadPos = False
 
                 # plot primary reads
@@ -310,8 +316,8 @@ def main():
                         alpha=1.0
                         if name in primary_bubbles[p][READS]:
                             bub_read = primary_bubbles[p][READS][name]
-                            supportH1 = bub_read[HAP_SUPPORT_H1]
-                            supportH2 = bub_read[HAP_SUPPORT_H2]
+                            supportH1 = min(-1, bub_read[HAP_SUPPORT_H1])
+                            supportH2 = min(-1, bub_read[HAP_SUPPORT_H2])
                             if supportH1 > supportH2:
                                 color = "blue"
                                 marker = "o"
@@ -322,7 +328,11 @@ def main():
                                 alpha = -1 / supportH2
                         plt.scatter(x,y,marker=marker,color=color,alpha=alpha,edgecolors="black")
                     else:
-                        color = "darkblue" if read[HAP] == 1 else ("darkred" if read[HAP] == 2 else "dimgrey")
+                        color = "dimgrey"
+                        if name in truth_h1:
+                            color = "darkblue"
+                        elif name in truth_h2:
+                            color = "darkred"
                         plt.scatter(x,y, marker="4" if read[STRAND] == "+" else "3", s=8, color=color, alpha=SPACER_POINT_ALPHA)
 
                 # plot filtered reads
@@ -334,8 +344,8 @@ def main():
                         alpha=1.0
                         if name in filtered_bubbles[p][READS]:
                             bub_read = filtered_bubbles[p][READS][name]
-                            supportH1 = bub_read[HAP_SUPPORT_H1]
-                            supportH2 = bub_read[HAP_SUPPORT_H2]
+                            supportH1 = min(-1, bub_read[HAP_SUPPORT_H1])
+                            supportH2 = min(-1, bub_read[HAP_SUPPORT_H2])
                             if supportH1 > supportH2:
                                 color = "blue"
                                 marker = "o"
@@ -346,7 +356,11 @@ def main():
                                 alpha = -1 / supportH2
                         plt.scatter(x,y,marker=marker,color=color,alpha=alpha,edgecolors="black")
                     else:
-                        color = "darkblue" if read[HAP] == 1 else ("darkred" if read[HAP] == 2 else "dimgrey")
+                        color = "dimgrey"
+                        if name in truth_h1:
+                            color = "darkblue"
+                        elif name in truth_h2:
+                            color = "darkred"
                         plt.scatter(x,y, marker="4" if read[STRAND] == "+" else "3", s=8, color=color, alpha=SPACER_POINT_ALPHA)
 
     # separate primary, filtered, and haplotypes
@@ -362,8 +376,11 @@ def main():
     if (args.figure_title is not None):
         plt.title(args.figure_title)
     plt.tight_layout()
-    if args.figure_name is not None:
-        plt.savefig(args.figure_name, dpi=360)
+    figure_name = args.figure_name
+    if figure_name is None and args.figure_name_input:
+        figure_name = args.input + ".png"
+    if figure_name is not None:
+        plt.savefig(figure_name, dpi=360)
     plt.show()
     plt.close()
 
