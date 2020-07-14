@@ -1001,7 +1001,7 @@ void writeHaplotaggedBam(BamChunk *bamChunk, char *inputBamLocation, char *outpu
             continue; //supplementary
 
         char *readName = bam_get_qname(aln);
-        bool has_tag = bam_aux_get(aln, "HT") == NULL;
+        bool has_tag = bam_aux_get(aln, "HP") != NULL;
         bool inH1 = stSet_search(readsInH1, readName);
         bool inH2 = stSet_search(readsInH2, readName);
         if (inH1 & !inH2) {
