@@ -159,7 +159,7 @@ void removeReadsStartingAfterChunkEnd(BamChunk *bamChunk, stList *reads, stList 
         }
     }
     st_logInfo(" %s Removing %"PRIu64" of %"PRIu64" reads for starting after chunkEnd\n", logIdentifier,
-            stList_length(indicesToRemove), stList_length(reads));
+               stList_length(indicesToRemove), stList_length(reads));
     for (int64_t i = 0; i < stList_length(indicesToRemove); i++) {
         int64_t indexToRemove = (int64_t) stList_get(indicesToRemove, i);
         bamChunkRead_destruct(stList_get(reads, indexToRemove));
@@ -168,7 +168,31 @@ void removeReadsStartingAfterChunkEnd(BamChunk *bamChunk, stList *reads, stList 
         stList_remove(alignments, indexToRemove);
     }
     stList_destruct(indicesToRemove);
+}
 
+void removeReadsOnlyInChunkBoundary(BamChunk *bamChunk, stList *reads, stList *alignments, char *logIdentifier) {
+    int64_t chunkEnd = bamChunk->chunkEnd - bamChunk->chunkBoundaryStart;
+    int64_t chunkStart = bamChunk->chunkStart - bamChunk->chunkBoundaryStart;
+    stList *indicesToRemove = stList_construct();
+    for (int64_t i = stList_length(reads) - 1; i >= 0; i--) {
+        stList *alignment = stList_get(alignments, i);
+        if (stList_length(alignment) == 0) continue;
+        int64_t firstAlignPos = stIntTuple_get(stList_get(alignment, 0), 0);
+        int64_t lastAlignPos = stIntTuple_get(stList_get(alignment, stList_length(alignment) - 1), 0);
+        if (lastAlignPos < chunkStart || firstAlignPos >= chunkEnd) {
+            stList_append(indicesToRemove, (void*) i);
+        }
+    }
+    st_logInfo(" %s Removing %"PRIu64" of %"PRIu64" reads for falling outside chunk boundaries\n", logIdentifier,
+               stList_length(indicesToRemove), stList_length(reads));
+    for (int64_t i = 0; i < stList_length(indicesToRemove); i++) {
+        int64_t indexToRemove = (int64_t) stList_get(indicesToRemove, i);
+        bamChunkRead_destruct(stList_get(reads, indexToRemove));
+        stList_destruct(stList_get(alignments, indexToRemove));
+        stList_remove(reads, indexToRemove);
+        stList_remove(alignments, indexToRemove);
+    }
+    stList_destruct(indicesToRemove);
 }
 
 void writePhasedReadInfoJSON(BamChunk *bamChunk, stList *primaryReads, stList *primaryAlignments, stList *filteredReads,

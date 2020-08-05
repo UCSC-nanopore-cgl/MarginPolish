@@ -45,7 +45,7 @@ void usage() {
     fprintf(stderr, "    -p --depth               : Will override the downsampling depth set in PARAMS.\n");
     fprintf(stderr, "    -P --minPartitionPhred   : Min Phred-scale liklihood for partition inclusion (diploid)\n");
     fprintf(stderr, "    -k --tempFilesToDisk     : Write temporary files to disk (for --diploid or supplementary output).\n");
-    fprintf(stderr, "    -F --skipFilteredReads   : Will NOT attempt to haplotype filtered reads.\n");
+    fprintf(stderr, "    -s --skipFilteredReads   : Will NOT attempt to haplotype filtered reads.\n");
 
     fprintf(stderr, "\nMiscellaneous supplementary output options:\n");
     fprintf(stderr, "    -c --supplementaryChunks : Write supplementary files for each chunk (in additon to writing\n");
@@ -117,12 +117,12 @@ int main(int argc, char *argv[]) {
 				{ "outputPoaDot", no_argument, 0, 'd'},
 				{ "outputHaplotypeReads", no_argument, 0, 'n'},
                 { "tempFilesToDisk", no_argument, 0, 'k'},
-                { "skipFilteredReads", no_argument, 0, 'F'},
-                { "outputPhasingState", no_argument, 0, 't'},
+                { "skipFilteredReads", no_argument, 0, 'S'},
+                { "outputPhasingState", no_argument, 0, 's'},
                 { 0, 0, 0, 0 } };
 
         int option_index = 0;
-        int key = getopt_long(argc-2, &argv[2], "ha:o:v:p:P:t:r:cCijdnkFs", long_options, &option_index);
+        int key = getopt_long(argc-2, &argv[2], "ha:o:v:p:P:t:r:cCijdnkSs", long_options, &option_index);
 
         if (key == -1) {
             break;
@@ -161,9 +161,6 @@ int main(int argc, char *argv[]) {
         case 'k':
             inMemory = FALSE;
             break;
-        case 'F':
-            partitionFilteredReads = FALSE;
-            break;
         case 'c':
             writeChunkSupplementaryOutput = TRUE;
             break;
@@ -181,6 +178,9 @@ int main(int argc, char *argv[]) {
             break;
         case 'n':
             outputHaplotypeReads = TRUE;
+            break;
+        case 'S':
+            partitionFilteredReads = FALSE;
             break;
         case 's':
             outputPhasingState = TRUE;
@@ -421,12 +421,15 @@ int main(int argc, char *argv[]) {
             }
                 // no downsampling, we just need to free the (empty) objects
             else {
+                assert(stList_length(maintainedReads) == 0);
+                assert(stList_length(maintainedAlignments) == 0);
                 stList_destruct(maintainedReads);
                 stList_destruct(maintainedAlignments);
             }
         }
         // these will be phased better in the next chunk
         removeReadsStartingAfterChunkEnd(bamChunk, reads, alignments, logIdentifier);
+        //TODO removeReadsOnlyInChunkBoundary(bamChunk, reads, alignments, logIdentifier);
 
         // prep for ploishing
         Poa *poa = NULL; // The poa alignment
@@ -571,7 +574,7 @@ int main(int argc, char *argv[]) {
                 }
             }
             st_logInfo(" %s Assigning %"PRId64" filtered reads to haplotypes\n", logIdentifier, stList_length(filteredReads));
-            removeReadsStartingAfterChunkEnd(bamChunk, filteredReads, filteredAlignments, logIdentifier);
+            removeReadsOnlyInChunkBoundary(bamChunk, filteredReads, filteredAlignments, logIdentifier);
 
             Poa *filteredPoa = poa_realign(filteredReads, filteredAlignments, rleReference, params->polishParams);
             bubbleGraph_partitionFilteredReads(filteredPoa, filteredReads, gf, bg, bamChunk,

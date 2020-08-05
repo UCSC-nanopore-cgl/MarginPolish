@@ -52,7 +52,7 @@ int main(int argc, char *argv[]) {
     bamOutFile = stString_copy(argv[3]);
 
     // for logging
-    st_setLogLevel(info);
+    st_setLogLevel(critical);
 
     // sanity check (verify files are accessible)
     if (access(bamInFile, R_OK) != 0) {

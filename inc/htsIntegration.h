@@ -49,6 +49,9 @@ bool downsampleViaReadLikelihood(int64_t intendedDepth, BamChunk *bamChunk, stLi
 bool downsampleViaHetSpanLikelihood(int64_t intendedDepth, BamChunk *bamChunk, stList *vcfEntries,
                                     stList *inputReads, stList *inputAlignments, stList *maintainedReads,
                                     stList *maintainedAlignments, stList *discardedReads, stList *discardedAlignments);
+bool downsampleViaFullReadLengthLikelihood(int64_t intendedDepth, BamChunk *bamChunk, stList *inputReads,
+                                           stList *inputAlignments, stList *maintainedReads, stList *maintainedAlignments,
+                                           stList *discardedReads, stList *discardedAlignments);
 
 void writeHaplotaggedBam(BamChunk *bamChunk, char *inputBamLocation, char *outputBamFileBase,
                          stSet *readsInH1, stSet *readsInH2, Params *params, char *logIdentifier);

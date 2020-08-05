@@ -1073,11 +1073,15 @@ typedef struct _bamChunkRead {
 	RleString *rleRead;        // rle read
 	uint8_t *qualities;            // quality scores. will be NULL if not given, else will be of length rleRead->length
 	bool forwardStrand;            // whether the alignment is matched to the forward strand
+	int64_t fullReadLength;   // total length for whole read (not just chunk portion)
 } BamChunkRead;
 
 
 BamChunkRead *bamChunkRead_construct2(char *readName, char *nucleotides, uint8_t *qualities, bool forwardStrand,
-									  bool useRunLengthEncoding);
+                                      bool useRunLengthEncoding);
+//todo could be merged
+BamChunkRead *bamChunkRead_construct3(char *readName, char *nucleotides, uint8_t *qualities, bool forwardStrand,
+									  int64_t fullReadLength, bool useRunLengthEncoding);
 
 BamChunkRead *bamChunkRead_constructCopy(BamChunkRead *copy);
 
@@ -1429,6 +1433,7 @@ void writePhasedReadInfoJSON(BamChunk *bamChunk, stList *primaryReads, stList *p
                              stList *filteredAlignments, stSet *readsInHap1, stSet *readsInHap2,
                              uint64_t *reference_rleToNonRleCoordMap, FILE *out);
 void removeReadsStartingAfterChunkEnd(BamChunk *bamChunk, stList *reads, stList *alignments, char *logIdentifier);
+void removeReadsOnlyInChunkBoundary(BamChunk *bamChunk, stList *reads, stList *alignments, char *logIdentifier);
 stList *produceVcfEntriesFromBubbleGraph(BamChunk *bamChunk, BubbleGraph *bg, stHash *readsToPSeqs,
 										 stGenomeFragment *gF, double strandSkewThreshold,
 										 double readSkewThreshold);

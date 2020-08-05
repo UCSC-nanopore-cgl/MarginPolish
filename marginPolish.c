@@ -43,8 +43,9 @@ void usage() {
     fprintf(stderr, "                                 Format: chr:start_pos-end_pos (chr3:2000-3000).\n");
     fprintf(stderr, "    -p --depth               : Will override the downsampling depth set in PARAMS.\n");
     fprintf(stderr, "    -2 --diploid             : Will perform diploid phasing.\n");
-    fprintf(stderr, "    -P --minPartitionPhred   : Min Phred-scale liklihood for partition inclusion (diploid)\n");
+    fprintf(stderr, "    -P --minPartitionPhred   : Min Phred-scale liklihood for partition inclusion (--diploid only)\n");
     fprintf(stderr, "    -k --tempFilesToDisk     : Write temporary files to disk (for --diploid or supplementary output).\n");
+    fprintf(stderr, "    -S --skipFilteredReads   : Will NOT attempt to haplotype filtered reads (--diploid only).\n");
 
 # ifdef _HDF5
     fprintf(stderr, "\nHELEN feature generation options:\n");
@@ -73,6 +74,7 @@ void usage() {
     fprintf(stderr, "    -j --outputPoaCsv        : Write out the poa as CSV file\n");
     fprintf(stderr, "    -n --outputHaplotypeReads: Write out phased reads and likelihoods as CSV file\n");
     fprintf(stderr, "    -m --outputHaplotypeBAM  : Write out phased BAMs\n");
+    fprintf(stderr, "    -s --outputPhasingState  : Write out phasing likelihoods as JSON file\n");
     fprintf(stderr, "\n");
 }
 
@@ -109,6 +111,8 @@ int main(int argc, char *argv[]) {
     bool outputHaplotypeBAM = FALSE;
     bool writeChunkSupplementaryOutput = FALSE;
     bool writeChunkSupplementaryOutputOnly = FALSE;
+    bool partitionFilteredReads = TRUE;
+    bool outputPhasingState = FALSE;
 
     if (argc < 4) {
         free(outputBase);
@@ -146,10 +150,12 @@ int main(int argc, char *argv[]) {
 				{ "outputHaplotypeBAM", no_argument, 0, 'm'},
 				{ "outputHaplotypeReads", no_argument, 0, 'n'},
                 { "tempFilesToDisk", no_argument, 0, 'k'},
+                { "skipFilteredReads", no_argument, 0, 'S'},
+                { "outputPhasingState", no_argument, 0, 't'},
                 { 0, 0, 0, 0 } };
 
         int option_index = 0;
-        int key = getopt_long(argc-2, &argv[2], "ha:o:v:p:P:2t:r:fF:u:L:cCijdmnk", long_options, &option_index);
+        int key = getopt_long(argc-2, &argv[2], "ha:o:v:p:P:2t:r:fF:u:L:cCijdmnkSs", long_options, &option_index);
 
         if (key == -1) {
             break;
@@ -240,6 +246,12 @@ int main(int argc, char *argv[]) {
             break;
         case 'n':
             outputHaplotypeReads = TRUE;
+            break;
+        case 's':
+            outputPhasingState = TRUE;
+            break;
+        case 'S':
+            partitionFilteredReads = FALSE;
             break;
         default:
             usage();
@@ -487,47 +499,51 @@ int main(int argc, char *argv[]) {
         st_logInfo(" %s Parsing input reads from file: %s\n", logIdentifier, bamInFile);
         stList *reads = stList_construct3(0, (void (*)(void *)) bamChunkRead_destruct);
         stList *alignments = stList_construct3(0, (void (*)(void *)) stList_destruct);
-        convertToReadsAndAlignments(bamChunk, rleReference, reads, alignments, params->polishParams);
+        stList *filteredReads = stList_construct3(0, (void (*)(void *)) bamChunkRead_destruct);
+        stList *filteredAlignments = stList_construct3(0, (void (*)(void *)) stList_destruct);
+        if (diploid && partitionFilteredReads) {
+            convertToReadsAndAlignmentsWithFiltered(bamChunk, rleReference, reads, alignments,
+                    filteredReads, filteredAlignments, params->polishParams);
+        } else {
+            convertToReadsAndAlignments(bamChunk, rleReference, reads, alignments, params->polishParams);
+        }
 
         // do downsampling if appropriate
         if (params->polishParams->maxDepth > 0) {
             // get downsampling structures
-            stList *filteredReads = stList_construct3(0, (void (*)(void *)) bamChunkRead_destruct);
-            stList *discardedReads = stList_construct3(0, (void (*)(void *)) bamChunkRead_destruct);
-            stList *filteredAlignments = stList_construct3(0, (void (*)(void *)) stList_destruct);
-            stList *discardedAlignments = stList_construct3(0, (void (*)(void *)) stList_destruct);
+            stList *maintainedReads = stList_construct3(0, (void (*)(void *)) bamChunkRead_destruct);
+            stList *maintainedAlignments = stList_construct3(0, (void (*)(void *)) stList_destruct);
 
-            bool didDownsample = downsampleViaReadLikelihood(params->polishParams->maxDepth, bamChunk, reads,
-                                                             alignments,
-                                                             filteredReads, filteredAlignments, discardedReads,
-                                                             discardedAlignments);
+            /*bool didDownsample = downsampleViaReadLikelihood(params->polishParams->maxDepth, bamChunk, reads,
+                                                             alignments, maintainedReads, maintainedAlignments,
+                                                             filteredReads, filteredAlignments);*/
+            bool didDownsample = downsampleViaFullReadLengthLikelihood(params->polishParams->maxDepth, bamChunk, reads,
+                                                             alignments, maintainedReads, maintainedAlignments,
+                                                             filteredReads, filteredAlignments);
 
             // we need to destroy the discarded reads and structures
             if (didDownsample) {
                 st_logInfo(" %s Downsampled from %"PRId64" to %"PRId64" reads\n", logIdentifier,
-                           stList_length(reads), stList_length(filteredReads));
-                // free all reads and alignments not used
-                stList_destruct(discardedReads);
-                stList_destruct(discardedAlignments);
+                           stList_length(reads), stList_length(maintainedReads));
                 // still has all the old reads, need to not free these
                 stList_setDestructor(reads, NULL);
                 stList_setDestructor(alignments, NULL);
                 stList_destruct(reads);
                 stList_destruct(alignments);
                 // and keep the filtered reads
-                reads = filteredReads;
-                alignments = filteredAlignments;
+                reads = maintainedReads;
+                alignments = maintainedAlignments;
             }
                 // no downsampling, we just need to free the (empty) objects
             else {
-                stList_destruct(filteredReads);
-                stList_destruct(filteredAlignments);
-                stList_destruct(discardedReads);
-                stList_destruct(discardedAlignments);
+                assert(stList_length(maintainedReads) == 0);
+                assert(stList_length(maintainedAlignments) == 0);
+                stList_destruct(maintainedReads);
+                stList_destruct(maintainedAlignments);
             }
         }
 
-        // prep for ploishing
+        // prep for polishing
         Poa *poa = NULL; // The poa alignment
         char *polishedConsensusString = NULL; // The polished reference string
 
@@ -561,6 +577,9 @@ int main(int argc, char *argv[]) {
 
         // handle diploid case
         if(diploid) {
+
+            time_t primaryPhasingStart = time(NULL);
+
             // Get the bubble graph representation
             BubbleGraph *bg = bubbleGraph_constructFromPoa2(poa, reads, params->polishParams, TRUE);
 
@@ -611,6 +630,57 @@ int main(int argc, char *argv[]) {
                 poa_estimatePhasedRepeatCountsUsingBayesianModel(poa_hap2, reads, params->polishParams->repeatSubMatrix,
                                                                  readsBelongingToHap2, readsBelongingToHap1, params->polishParams);
             }
+            st_logInfo(" %s Phased primary reads in %d sec\n", logIdentifier, time(NULL) - primaryPhasingStart);
+
+            // debugging output
+            char *chunkBubbleOutFilename = NULL;
+            FILE *chunkBubbleOut = NULL;
+            uint64_t *reference_rleToNonRleCoordMap = rleString_getRleToNonRleCoordinateMap(rleReference);
+            if (outputPhasingState) {
+                // save info
+                chunkBubbleOutFilename = stString_print("%s.C%05"PRId64".%s-%"PRId64"-%"PRId64".phasingInfo.json",
+                                                        outputBase, chunkIdx,  bamChunk->refSeqName, bamChunk->chunkBoundaryStart, bamChunk->chunkBoundaryEnd);
+                st_logInfo(" %s Saving chunk phasing info to: %s\n", logIdentifier, chunkBubbleOutFilename);
+                chunkBubbleOut = fopen(chunkBubbleOutFilename, "w");
+                fprintf(chunkBubbleOut, "{\n");
+                bubbleGraph_saveBubblePhasingInfo(bamChunk, bg, readsToPSeqs, gf, reference_rleToNonRleCoordMap,
+                                                  chunkBubbleOut);
+            }
+
+            // should included filtered reads in output
+            if (partitionFilteredReads) {
+                // get filtered reads
+                for (int64_t bcrIdx = 0; bcrIdx < stList_length(reads); bcrIdx++) {
+                    BamChunkRead *bcr = stList_get(reads, bcrIdx);
+                    if (!stSet_search(readsBelongingToHap1, bcr) && !stSet_search(readsBelongingToHap2, bcr)) {
+                        // was filtered in some form
+                        stList_append(filteredReads, bamChunkRead_constructCopy(bcr));
+                        stList_append(filteredAlignments, copyListOfIntTuples(stList_get(alignments, bcrIdx)));
+                    }
+                }
+                st_logInfo(" %s Assigning %"PRId64" filtered reads to haplotypes\n", logIdentifier, stList_length(filteredReads));
+                //TODO removeReadsOnlyInChunkBoundary(bamChunk, filteredReads, filteredAlignments, logIdentifier);
+
+                time_t filteredPhasingStart = time(NULL);
+                Poa *filteredPoa = poa_realign(filteredReads, filteredAlignments, rleReference, params->polishParams);
+                bubbleGraph_partitionFilteredReads(filteredPoa, filteredReads, gf, bg, bamChunk,
+                                                   reference_rleToNonRleCoordMap, readsBelongingToHap1,
+                                                   readsBelongingToHap2, params->polishParams,
+                                                   chunkBubbleOut, logIdentifier);
+                poa_destruct(filteredPoa);
+                st_logInfo(" %s Partitioned filtered reads in %d sec.\n", logIdentifier, time(NULL) - filteredPhasingStart);
+            }
+
+            // debugging output for state
+            if (outputPhasingState) {
+                writePhasedReadInfoJSON(bamChunk, reads, alignments, filteredReads, filteredAlignments,
+                                        readsBelongingToHap1, readsBelongingToHap2, reference_rleToNonRleCoordMap,
+                                        chunkBubbleOut);
+                fprintf(chunkBubbleOut, "\n}\n");
+                fclose(chunkBubbleOut);
+                free(chunkBubbleOutFilename);
+            }
+
 
             // Output
             outputChunkers_processChunkSequencePhased(outputChunkers, threadIdx, chunkIdx, bamChunk->refSeqName,
@@ -657,6 +727,7 @@ int main(int argc, char *argv[]) {
             poa_destruct(poa_hap1);
             poa_destruct(poa_hap2);
             stHash_destruct(readsToPSeqs);
+            free(reference_rleToNonRleCoordMap);
 
         } else {
 
@@ -703,6 +774,8 @@ int main(int argc, char *argv[]) {
         poa_destruct(poa);
         stList_destruct(reads);
         stList_destruct(alignments);
+        stList_destruct(filteredReads);
+        stList_destruct(filteredAlignments);
         free(logIdentifier);
     }
 
