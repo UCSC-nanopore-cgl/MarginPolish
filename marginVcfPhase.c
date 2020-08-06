@@ -551,7 +551,6 @@ int main(int argc, char *argv[]) {
         // debugging output
         char *chunkBubbleOutFilename = NULL;
         FILE *chunkBubbleOut = NULL;
-        uint64_t *bg_rleToNonRleCoordMap = rleString_getRleToNonRleCoordinateMap(bg->refString);
         if (outputPhasingState) {
             // save info
             chunkBubbleOutFilename = stString_print("%s.C%05"PRId64".%s-%"PRId64"-%"PRId64".phasingInfo.json",
@@ -559,7 +558,7 @@ int main(int argc, char *argv[]) {
             st_logInfo(" %s Saving chunk phasing info to: %s\n", logIdentifier, chunkBubbleOutFilename);
             chunkBubbleOut = fopen(chunkBubbleOutFilename, "w");
             fprintf(chunkBubbleOut, "{\n");
-            bubbleGraph_saveBubblePhasingInfo(bamChunk, bg, readsToPSeqs, gf, bg_rleToNonRleCoordMap,
+            bubbleGraph_saveBubblePhasingInfo(bamChunk, bg, readsToPSeqs, gf, reference_rleToNonRleCoordMap,
                     chunkBubbleOut);
         }
 
@@ -579,7 +578,7 @@ int main(int argc, char *argv[]) {
 
             Poa *filteredPoa = poa_realign(filteredReads, filteredAlignments, rleReference, params->polishParams);
             bubbleGraph_partitionFilteredReads(filteredPoa, filteredReads, gf, bg, bamChunk,
-                    bg_rleToNonRleCoordMap, readsBelongingToHap1, readsBelongingToHap2, params->polishParams,
+                    reference_rleToNonRleCoordMap, readsBelongingToHap1, readsBelongingToHap2, params->polishParams,
                     chunkBubbleOut, logIdentifier);
             poa_destruct(filteredPoa);
         }
@@ -635,7 +634,6 @@ int main(int argc, char *argv[]) {
         stList_destruct(chunkVcfEntries);
 
         // Cleanup
-        free(bg_rleToNonRleCoordMap);
         free(reference_rleToNonRleCoordMap);
         rleString_destruct(rleReference);
         poa_destruct(poa);

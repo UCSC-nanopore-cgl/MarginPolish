@@ -558,7 +558,11 @@ int main(int argc, char *argv[]) {
         }
 
         // Generate partial order alignment (POA) (destroys rleAlignments in the process)
-        poa = poa_realignAll(reads, alignments, rleReference, params->polishParams);
+        poa = (diploid &&
+               params->polishParams->skipHaploidPolishingIfDiploid) // If diploid check flag to see if bothering with haploid polish
+              ? poa_realign(reads, alignments, rleReference,
+                            params->polishParams) // This option just generates a POA against the input reference backgroun
+              : poa_realignAll(reads, alignments, rleReference, params->polishParams); // This option refines the POA
 
         // Log info about the POA
         if (st_getLogLevel() >= info) {
@@ -636,7 +640,6 @@ int main(int argc, char *argv[]) {
             char *chunkBubbleOutFilename = NULL;
             FILE *chunkBubbleOut = NULL;
             uint64_t *reference_rleToNonRleCoordMap = rleString_getRleToNonRleCoordinateMap(rleReference);
-            uint64_t *bg_rleToNonRleCoordMap = rleString_getRleToNonRleCoordinateMap(bg->refString);
             if (outputPhasingState) {
                 // save info
                 chunkBubbleOutFilename = stString_print("%s.C%05"PRId64".%s-%"PRId64"-%"PRId64".phasingInfo.json",
@@ -644,7 +647,7 @@ int main(int argc, char *argv[]) {
                 st_logInfo(" %s Saving chunk phasing info to: %s\n", logIdentifier, chunkBubbleOutFilename);
                 chunkBubbleOut = fopen(chunkBubbleOutFilename, "w");
                 fprintf(chunkBubbleOut, "{\n");
-                bubbleGraph_saveBubblePhasingInfo(bamChunk, bg, readsToPSeqs, gf, bg_rleToNonRleCoordMap,
+                bubbleGraph_saveBubblePhasingInfo(bamChunk, bg, readsToPSeqs, gf, reference_rleToNonRleCoordMap,
                                                   chunkBubbleOut);
             }
 
@@ -665,7 +668,7 @@ int main(int argc, char *argv[]) {
                 time_t filteredPhasingStart = time(NULL);
                 Poa *filteredPoa = poa_realign(filteredReads, filteredAlignments, rleReference, params->polishParams);
                 bubbleGraph_partitionFilteredReads(filteredPoa, filteredReads, gf, bg, bamChunk,
-                                                   bg_rleToNonRleCoordMap, readsBelongingToHap1,
+                                                   reference_rleToNonRleCoordMap, readsBelongingToHap1,
                                                    readsBelongingToHap2, params->polishParams,
                                                    chunkBubbleOut, logIdentifier);
                 poa_destruct(filteredPoa);
@@ -728,7 +731,6 @@ int main(int argc, char *argv[]) {
             poa_destruct(poa_hap1);
             poa_destruct(poa_hap2);
             stHash_destruct(readsToPSeqs);
-            free(bg_rleToNonRleCoordMap);
             free(reference_rleToNonRleCoordMap);
 
         } else {
