@@ -314,15 +314,18 @@ stList *produceVcfEntriesFromBubbleGraph(BamChunk *bamChunk, BubbleGraph *bg, st
         // maybe save to vcf entry
         uint64_t bubblePos = (uint64_t ) (b->refStart + b->bubbleLength / 2);
         if (pass) {
-            stList_append(vcfEntries, vcfEntry_construct(bamChunk->refSeqName, bubblePos, -1, -1, rleString_copy(hap1),
-                                                         rleString_copy(hap2)));
+            for (int64_t cvp = 0; cvp < stList_length(b->variantPositionOffsets); cvp++) {
+                stList_append(vcfEntries, vcfEntry_construct(bamChunk->refSeqName,
+                        b->refStart + (int64_t) stList_get(b->variantPositionOffsets, cvp), -1, -1,
+                        rleString_copy(hap1), rleString_copy(hap2)));
+            }
             passes++;
         }
         total++;
 
         //loggit
-        st_logInfo(" %s Bubble at %"PRIu64" has strand skew %.5f%s and read support skew %.5f%s (%2"PRId64":%-2"PRId64" ): %s\n",
-                logIdentifier, bubblePos, strandSkew, strandSkew < strandSkewThreshold ? "*" : " ",
+        st_logInfo(" %s Bubble at %"PRIu64" (%"PRIu64"+%"PRIu64") has strand skew %.5f%s and read support skew %.5f%s (%2"PRId64":%-2"PRId64" ): %s\n",
+                logIdentifier, bubblePos, b->refStart, b->bubbleLength, strandSkew, strandSkew < strandSkewThreshold ? "*" : " ",
                 readSupportSkew, readSupportSkew < readSkewThreshold ? "*" : " ", hap1Reads, totalReads-hap1Reads,
                 pass ? "PASS" : "FAIL");
     }

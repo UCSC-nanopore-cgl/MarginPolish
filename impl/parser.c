@@ -30,6 +30,11 @@ stRPHmmParameters *stRPHmmParameters_construct() {
     params->includeAncestorSubProb = true;
     params->minPhredScoreForHaplotypePartition = 0;
 
+    // bubble parameters
+    params->bubbleFindingIterations = 1;
+    params->bubbleMinBinomialStrandLikelihood = .05;
+    params->bubbleMinBinomialReadSplitLikelihood = .05;
+
 
     return params;
 }
@@ -93,6 +98,12 @@ void stRPHmmParameters_parseParametersFromJson(stRPHmmParameters *params, char *
             params->roundsOfIterativeRefinement = stJson_parseInt(js, tokens, ++i);
         } else if (strcmp(keyString, "minPhredScoreForHaplotypePartition") == 0) {
             params->minPhredScoreForHaplotypePartition = stJson_parseInt(js, tokens, ++i);
+        } else if (strcmp(keyString, "bubbleFindingIterations") == 0) {
+            params->bubbleFindingIterations = stJson_parseInt(js, tokens, ++i);
+        } else if (strcmp(keyString, "bubbleMinBinomialStrandLikelihood") == 0) {
+            params->bubbleMinBinomialStrandLikelihood = stJson_parseFloat(js, tokens, ++i);
+        } else if (strcmp(keyString, "bubbleMinBinomialReadSplitLikelihood") == 0) {
+            params->bubbleMinBinomialReadSplitLikelihood = stJson_parseFloat(js, tokens, ++i);
         } else {
             st_errAbort("ERROR: Unrecognised key in params file: %s\n", keyString);
         }

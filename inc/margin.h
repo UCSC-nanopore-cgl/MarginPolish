@@ -260,6 +260,14 @@ struct _stRPHmmParameters {
 
 	// Whether to include reads in a partition
 	int64_t minPhredScoreForHaplotypePartition;
+
+	// Number of iterations to search for bubbles (and remove bubbles with strand or read split below some threshold)
+	int64_t bubbleFindingIterations;
+
+	// Parameters for removing bubbles
+	double bubbleMinBinomialStrandLikelihood;
+	double bubbleMinBinomialReadSplitLikelihood;
+
 };
 
 stRPHmmParameters *stRPHmmParameters_construct();
@@ -1211,6 +1219,7 @@ typedef struct _bubble {
 	uint64_t alleleOffset; // The index of the first allele in this bubble
 	// in a sequence of all alleles in the bubble graph, ordered first by bubble then
 	// by order in the bubble.
+	stList *variantPositionOffsets;
 } Bubble;
 
 typedef struct _bubbleGraph {

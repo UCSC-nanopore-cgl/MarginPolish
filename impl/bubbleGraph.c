@@ -723,8 +723,8 @@ void updateCandidateVariantPositionsByVcfEntries(bool *candidateVariantPositions
     stList_destructIterator(itor);
 }
 
-
-bool *getFilteredAnchorPositions(Poa *poa, double *candidateWeights, stList *vcfEntries, PolishParams *params) {
+bool *getFilteredAnchorPositions(Poa *poa, double *candidateWeights, stList *vcfEntries, PolishParams *params,
+        bool returnCandidateVariantPositions, bool **candidateVariantPositionsPointer) {
     /*
      * Create set of anchor positions, using positions not close to candidate variants
      */
@@ -745,7 +745,11 @@ bool *getFilteredAnchorPositions(Poa *poa, double *candidateWeights, stList *vcf
     }
 
     // Cleanup
-    free(candidateVariantPositions);
+    if (returnCandidateVariantPositions) {
+        *candidateVariantPositionsPointer = candidateVariantPositions;
+    } else {
+        free(candidateVariantPositions);
+    }
     free(expandedCandidateVariantPositions);
 
     // Log some stuff about the anchors
@@ -882,6 +886,8 @@ void bubble_destruct(Bubble b) {
     free(b.alleleReadSupports);
     // Cleanup the reference allele
     rleString_destruct(b.refAllele);
+    // cleanup candidate variant positions
+    if (b.variantPositionOffsets != NULL) stList_destruct(b.variantPositionOffsets);
 }
 
 void bubbleGraph_destruct(BubbleGraph *bg) {
@@ -923,7 +929,9 @@ BubbleGraph *bubbleGraph_constructFromPoaAndVCF(Poa *poa, stList *bamChunkReads,
     sortBaseObservations(poa);
 
     // Identify anchor points, represented as a binary array, one bit for each POA node
-    bool *anchors = getFilteredAnchorPositions(poa, candidateWeights, vcfEntries, params);
+    bool *candidateVariantPositions = NULL;
+    bool *anchors = getFilteredAnchorPositions(poa, candidateWeights, vcfEntries, params, TRUE, &candidateVariantPositions);
+    assert(candidateVariantPositions != NULL);
 
     // Make a list of bubbles
     stList *bubbles = stList_construct3(0, free);
@@ -979,6 +987,14 @@ BubbleGraph *bubbleGraph_constructFromPoaAndVCF(Poa *poa, stList *bamChunkReads,
                         // Set the coordinates
                         b->refStart = pAnchor;
                         b->bubbleLength = i - 1 - pAnchor;
+
+                        // get variant positions
+                        b->variantPositionOffsets = stList_construct();
+                        for (int64_t vp = 0; vp < i - 1 - pAnchor; vp++) {
+                            if (candidateVariantPositions[pAnchor+vp]) {
+                                stList_append(b->variantPositionOffsets, (void*) vp);
+                            }
+                        }
 
                         // The reference allele
                         b->refAllele = existingRefSubstring;
@@ -1090,6 +1106,7 @@ BubbleGraph *bubbleGraph_constructFromPoaAndVCF(Poa *poa, stList *bamChunkReads,
     // Cleanup
     free(anchors);
     free(candidateWeights);
+    free(candidateVariantPositions);
     stList_destruct(bubbles);
 
     return bg;
@@ -1161,6 +1178,7 @@ BubbleGraph *bubbleGraph_partitionFilteredReads(Poa *poa, stList *bamChunkReads,
 
 
         Bubble *b = st_malloc(sizeof(Bubble)); // Make a bubble and add to list of bubbles
+        b->variantPositionOffsets = NULL;
 
         // Set the coordinates
         b->refStart = (uint64_t) refStart;
