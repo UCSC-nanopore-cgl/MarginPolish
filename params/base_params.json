@@ -79,7 +79,7 @@
 		  "roundsOfIterativeRefinement": 10,
           "minPhredScoreForHaplotypePartition": 10,
           "bubbleFindingIterations": 1,
-          "bubbleMinBinomialStrandLikelihood": 0.05,
-          "bubbleMinBinomialReadSplitLikelihood": 0.05
+          "bubbleMinBinomialStrandLikelihood": 0.1,
+          "bubbleMinBinomialReadSplitLikelihood": 0.1
 	}
 }

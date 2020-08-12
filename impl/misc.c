@@ -324,7 +324,7 @@ stList *produceVcfEntriesFromBubbleGraph(BamChunk *bamChunk, BubbleGraph *bg, st
         total++;
 
         //loggit
-        st_logInfo(" %s Bubble at %"PRIu64" (%"PRIu64"+%"PRIu64") has strand skew %.5f%s and read support skew %.5f%s (%2"PRId64":%-2"PRId64" ): %s\n",
+        st_logDebug(" %s Bubble at %"PRIu64" (%"PRIu64"+%"PRIu64") has strand skew %.5f%s and read support skew %.5f%s (%2"PRId64":%-2"PRId64" ): %s\n",
                 logIdentifier, bubblePos, b->refStart, b->bubbleLength, strandSkew, strandSkew < strandSkewThreshold ? "*" : " ",
                 readSupportSkew, readSupportSkew < readSkewThreshold ? "*" : " ", hap1Reads, totalReads-hap1Reads,
                 pass ? "PASS" : "FAIL");

@@ -292,8 +292,6 @@ def main():
     for read in read_data.values():
         # first iterate over reads (ypos)
         name = read[NAME]
-        if name.startswith("31a454ab"):
-            pass
         if name not in ypos_map:
             continue
         y = ypos_map[name]
