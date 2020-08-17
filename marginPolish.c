@@ -39,17 +39,20 @@ void usage() {
     fprintf(stderr, "    -t --threads             : Set number of concurrent threads [default = 1]\n");
 #endif
     fprintf(stderr, "    -o --outputBase          : Name to use for output files [default = 'output']\n");
-    fprintf(stderr, "    -r --region              : If set, will only compute for given chromosomal region.\n");
-    fprintf(stderr, "                                 Format: chr:start_pos-end_pos (chr3:2000-3000).\n");
-    fprintf(stderr, "    -p --depth               : Will override the downsampling depth set in PARAMS.\n");
+    fprintf(stderr, "    -r --region              : If set, will only compute for given chromosomal region\n");
+    fprintf(stderr, "                                 Format: chr:start_pos-end_pos (chr3:2000-3000)\n");
+    fprintf(stderr, "    -p --depth               : Will override the downsampling depth set in PARAMS\n");
+    fprintf(stderr, "    -k --tempFilesToDisk     : Write temporary files to disk (for --diploid or supplementary output)\n");
+
+
+    fprintf(stderr, "\nDiploid options:\n");
     fprintf(stderr, "    -2 --diploid             : Will perform diploid phasing.\n");
-    fprintf(stderr, "    -P --minPartitionPhred   : Min Phred-scale liklihood for partition inclusion (--diploid only)\n");
-    fprintf(stderr, "    -k --tempFilesToDisk     : Write temporary files to disk (for --diploid or supplementary output).\n");
-    fprintf(stderr, "    -S --skipFilteredReads   : Will NOT attempt to haplotype filtered reads (--diploid only).\n");
+    fprintf(stderr, "    -v --vcf                 : VCF with sites for phasing (will not perform variant detection if set)\n");
+    fprintf(stderr, "    -S --skipFilteredReads   : Will NOT attempt to haplotype filtered reads (--diploid only)\n");
 
 # ifdef _HDF5
     fprintf(stderr, "\nHELEN feature generation options:\n");
-    fprintf(stderr, "    -f --produceFeatures     : output splitRleWeight or diploidRleWeight (based on -2 flag) features for HELEN.\n");
+    fprintf(stderr, "    -f --produceFeatures     : output splitRleWeight or diploidRleWeight (based on -2 flag) features for HELEN\n");
     fprintf(stderr, "    -F --featureType         : output specific feature type for HELEN (overwrites -f).  Valid types:\n");
     fprintf(stderr, "                                 splitRleWeight:   [default] run lengths split into chunks\n");
     fprintf(stderr, "                                 channelRleWeight: run lengths split into per-nucleotide channels\n");
@@ -88,9 +91,9 @@ int main(int argc, char *argv[]) {
     char *referenceFastaFile = NULL;
     char *outputBase = stString_copy("output");
     char *regionStr = NULL;
+    char *vcfFile = NULL;
     int numThreads = 1;
     int64_t maxDepth = -1;
-    int64_t minPhredScoreForHaplotypePartition = -1;
     bool diploid = FALSE;
     bool inMemory = TRUE;
 
@@ -98,7 +101,6 @@ int main(int argc, char *argv[]) {
     HelenFeatureType helenFeatureType = HFEAT_NONE;
     bool setDefaultHelenFeature = false;
     char *trueReferenceBam = NULL;
-    char *trueReferenceBamHap2 = NULL;
     bool fullFeatureOutput = FALSE;
     int64_t splitWeightMaxRunLength = 0;
     void **helenHDF5Files = NULL;
@@ -136,8 +138,8 @@ int main(int argc, char *argv[]) {
                 { "outputBase", required_argument, 0, 'o'},
                 { "region", required_argument, 0, 'r'},
                 { "depth", required_argument, 0, 'p'},
-                { "minPartitionPhred", required_argument, 0, 'P'},
                 { "diploid", no_argument, 0, '2'},
+                { "vcf", required_argument, 0, 'v'},
                 { "produceFeatures", no_argument, 0, 'f'},
                 { "featureType", required_argument, 0, 'F'},
                 { "trueReferenceBam", required_argument, 0, 'u'},
@@ -155,7 +157,7 @@ int main(int argc, char *argv[]) {
                 { 0, 0, 0, 0 } };
 
         int option_index = 0;
-        int key = getopt_long(argc-2, &argv[2], "ha:o:v:p:P:2t:r:fF:u:L:cCijdmnkSs", long_options, &option_index);
+        int key = getopt_long(argc-2, &argv[2], "ha:o:v:p:2v:t:r:fF:u:L:cCijdmnkSs", long_options, &option_index);
 
         if (key == -1) {
             break;
@@ -181,9 +183,6 @@ int main(int argc, char *argv[]) {
             if (maxDepth < 0) {
                 st_errAbort("Invalid maxDepth: %s", optarg);
             }
-            break;
-        case 'P':
-            minPhredScoreForHaplotypePartition = atoi(optarg);
             break;
         case 'F':
             if (stString_eqcase(optarg, "simpleWeight") || stString_eqcase(optarg, "simple")) {
@@ -221,6 +220,10 @@ int main(int argc, char *argv[]) {
             }
             break;
         case '2':
+            diploid = TRUE;
+            break;
+        case 'v':
+            vcfFile = stString_copy(optarg);
             diploid = TRUE;
             break;
         case 'k':
@@ -265,21 +268,6 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // handle diploid sanity checks
-    if (diploid) {
-        // true ref
-        if (trueReferenceBam != NULL) {
-            stList *trueRefParts = stString_splitByString(trueReferenceBam, ",");
-            if (stList_length(trueRefParts) != 2) {
-                st_errAbort("If --diploid is set, --trueReferenceBam must have two comma-separated values.");
-            }
-            free(trueReferenceBam);
-            trueReferenceBam = stString_copy(stList_get(trueRefParts, 0));
-            trueReferenceBamHap2 = stString_copy(stList_get(trueRefParts, 1));
-            stList_destruct(trueRefParts);
-        }
-    }
-
     // sanity check (verify files exist)
     if (access(bamInFile, R_OK) != 0) {
         st_errAbort("Could not read from input bam file: %s\n", bamInFile);
@@ -295,6 +283,9 @@ int main(int argc, char *argv[]) {
     if (access(paramsFile, R_OK) != 0) {
         st_errAbort("Could not read from params file: %s\n", paramsFile);
     }
+    if (vcfFile != NULL && access(paramsFile, R_OK) != 0) {
+        st_errAbort("Could not read from vcf file: %s\n", vcfFile);
+    }
     if (trueReferenceBam != NULL) {
         if (access(trueReferenceBam, R_OK) != 0) {
             st_errAbort("Could not read from truth file: %s\n", trueReferenceBam);
@@ -302,19 +293,6 @@ int main(int argc, char *argv[]) {
         char *idx = stString_print("%s.bai", trueReferenceBam);
         if (access(idx, R_OK) != 0) {
             st_errAbort("BAM does not appear to be indexed: %s\n", trueReferenceBam);
-        }
-        free(idx);
-    }
-    if (trueReferenceBamHap2 != NULL) {
-        if (access(trueReferenceBamHap2, R_OK ) != 0 ) {
-            st_errAbort("Could not read from truth h2 file: %s\n", trueReferenceBamHap2);
-        }
-        if (stString_eq(trueReferenceBam, trueReferenceBamHap2)) {
-            st_errAbort("Truth H1 and H2 files are the same: %", trueReferenceBam);
-        }
-        char *idx = stString_print("%s.bai", trueReferenceBamHap2);
-        if (access(idx, R_OK ) != 0 ) {
-            st_errAbort("BAM does not appear to be indexed: %s\n", trueReferenceBamHap2);
         }
         free(idx);
     }
@@ -361,11 +339,6 @@ int main(int argc, char *argv[]) {
                        maxDepth);
         params->polishParams->maxDepth = (uint64_t) maxDepth;
     }
-    if (minPhredScoreForHaplotypePartition >= 0) {
-        st_logCritical("> Changing minPhredScoreForHaplotypePartition paramter from %"PRId64" to %"PRId64"\n",
-                       params->phaseParams->minPhredScoreForHaplotypePartition, minPhredScoreForHaplotypePartition);
-        params->phaseParams->minPhredScoreForHaplotypePartition = minPhredScoreForHaplotypePartition;
-    }
 
     // a failure case
     if (diploid && partitionFilteredReads && !params->polishParams->skipHaploidPolishingIfDiploid) {
@@ -391,6 +364,12 @@ int main(int argc, char *argv[]) {
 
     // get reference sequences (and remove cruft after refName)
     stHash *referenceSequences = parseReferenceSequences(referenceFastaFile);
+
+    // get vcf entries (if set)
+    stList *vcfEntries = NULL;
+    if (vcfFile != NULL) {
+        vcfEntries = parseVcf2(vcfFile, TRUE, params->polishParams);
+    }
 
     // get chunker for bam.  if regionStr is NULL, it will be ignored
     BamChunker *bamChunker = bamChunker_construct2(bamInFile, regionStr, params->polishParams);
@@ -531,10 +510,13 @@ int main(int argc, char *argv[]) {
             stList *maintainedReads = stList_construct3(0, (void (*)(void *)) bamChunkRead_destruct);
             stList *maintainedAlignments = stList_construct3(0, (void (*)(void *)) stList_destruct);
 
-            /*bool didDownsample = downsampleViaReadLikelihood(params->polishParams->maxDepth, bamChunk, reads,
-                                                             alignments, maintainedReads, maintainedAlignments,
-                                                             filteredReads, filteredAlignments);*/
-            bool didDownsample = downsampleViaFullReadLengthLikelihood(params->polishParams->maxDepth, bamChunk, reads,
+            bool didDownsample = diploid ?
+                                 // prioritizes longer reads (better for phasing)
+                                 downsampleViaFullReadLengthLikelihood(params->polishParams->maxDepth, bamChunk, reads,
+                                                                       alignments, maintainedReads, maintainedAlignments,
+                                                                       filteredReads, filteredAlignments):
+                                 // just randomly samples reads
+                                 downsampleViaReadLikelihood(params->polishParams->maxDepth, bamChunk, reads,
                                                              alignments, maintainedReads, maintainedAlignments,
                                                              filteredReads, filteredAlignments);
 
@@ -609,6 +591,10 @@ int main(int argc, char *argv[]) {
             stGenomeFragment *gf = NULL;
             stReference *ref = NULL;
             stList *chunkVcfEntries = NULL;
+            if (vcfEntries != NULL) {
+                chunkVcfEntries = getVcfEntriesForRegion(vcfEntries, bamChunk->refSeqName, bamChunk->chunkBoundaryStart,
+                                                         bamChunk->chunkBoundaryEnd);
+            }
             do {
                 // cleanup and iterate (if not first run through)
                 if (bubbleFindingIteration != 0) {
@@ -673,7 +659,7 @@ int main(int argc, char *argv[]) {
                 }
 
                 bubbleFindingIteration++;
-            } while (bubbleFindingIteration <= params->phaseParams->bubbleFindingIterations);
+            } while (vcfFile == NULL && bubbleFindingIteration <= params->phaseParams->bubbleFindingIterations);
 
             st_logInfo(" %s Building POA for each haplotype\n", logIdentifier);
             uint64_t *hap1 = getPaddedHaplotypeString(gf->haplotypeString1, gf, bg, params);
@@ -763,7 +749,7 @@ int main(int argc, char *argv[]) {
                 PoaFeature_handleDiploidHelenFeatures(helenFeatureType,
                                                       splitWeightMaxRunLength,
                                                       helenHDF5Files, fullFeatureOutput, trueReferenceBam,
-                                                      trueReferenceBamHap2, params,
+                                                      NULL, params,
                                                       logIdentifier, chunkIdx, bamChunk, reads, poa_hap1, poa_hap2,
                                                       readsBelongingToHap1,
                                                       readsBelongingToHap2, polishedRleConsensusH1,
@@ -913,7 +899,6 @@ int main(int argc, char *argv[]) {
     stHash_destruct(referenceSequences);
     params_destruct(params);
     if (trueReferenceBam != NULL) free(trueReferenceBam);
-    if (trueReferenceBamHap2 != NULL) free(trueReferenceBamHap2);
     if (regionStr != NULL) free(regionStr);
 #ifdef _HDF5
     if (helenHDF5Files != NULL) {
@@ -928,6 +913,10 @@ int main(int argc, char *argv[]) {
     if (outputPoaCsvFile != NULL) free(outputPoaCsvFile);
     if (outputReadCsvFile != NULL) free(outputReadCsvFile);
     if (outputRepeatCountFile != NULL) free(outputRepeatCountFile);
+    if (vcfFile != NULL) {
+        free(vcfFile);
+        stList_destruct(vcfEntries);
+    }
     free(outputBase);
     free(bamInFile);
     free(referenceFastaFile);

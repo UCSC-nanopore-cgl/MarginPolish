@@ -1013,6 +1013,9 @@ void PoaFeature_handleDiploidHelenFeatures(
         stSet *readsInH1, stSet *readsInH2, RleString *polishedRleConsensusH1, RleString *polishedRleConsensusH2,
         RleString *originalReference) {
 
+    //todo - trueReferenceBamB is NULL and that breaks this; needs to be reafactored
+    st_errAbort("Diploid HELEN Feature generation is not implemented!\n");
+
     st_logInfo(">%s Performing diploid feature generation for chunk.\n", logIdentifier);
 
     // get filename
