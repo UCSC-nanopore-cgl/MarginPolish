@@ -403,7 +403,9 @@ int main(int argc, char *argv[]) {
             /*bool didDownsample = downsampleViaHetSpanLikelihood(params->phaseParams->maxCoverageDepth, bamChunk,
                     chunkVcfEntries, reads, alignments, maintainedReads, maintainedAlignments, filteredReads,
                     filteredAlignments);*/
-            bool didDownsample = downsampleViaReadLikelihood(params->phaseParams->maxCoverageDepth, bamChunk,
+            /*bool didDownsample = downsampleViaReadLikelihood(params->phaseParams->maxCoverageDepth, bamChunk,
+                    reads, alignments, maintainedReads, maintainedAlignments, filteredReads, filteredAlignments);*/
+            bool didDownsample = downsampleViaFullReadLengthLikelihood(params->phaseParams->maxCoverageDepth, bamChunk,
                     reads, alignments, maintainedReads, maintainedAlignments, filteredReads, filteredAlignments);
 
             // we need to destroy the discarded reads and structures
@@ -428,8 +430,7 @@ int main(int argc, char *argv[]) {
             }
         }
         // these will be phased better in the next chunk
-        removeReadsStartingAfterChunkEnd(bamChunk, reads, alignments, logIdentifier);
-        //TODO removeReadsOnlyInChunkBoundary(bamChunk, reads, alignments, logIdentifier);
+        removeReadsOnlyInChunkBoundary(bamChunk, reads, alignments, logIdentifier);
 
         // prep for ploishing
         Poa *poa = NULL; // The poa alignment
@@ -462,47 +463,79 @@ int main(int argc, char *argv[]) {
                                                   outputPoaDOT, outputPoaCSV, outputRepeatCounts);
         }
 
+
         // iteratively find bubbles
+        int64_t bubbleFindingIteration = 0;
         BubbleGraph *bg = NULL;
         stHash *readsToPSeqs = NULL;
         stSet *readsBelongingToHap1 = NULL, *readsBelongingToHap2 = NULL;
         stGenomeFragment *gf = NULL;
         stReference *ref = NULL;
-
-        // Get the bubble graph representation
-        bg = bubbleGraph_constructFromPoaAndVCF(poa, reads, chunkVcfEntries, params->polishParams, TRUE);
-
-        // Now make a POA for each of the haplotypes
-        ref = bubbleGraph_getReference(bg, bamChunk->refSeqName, params);
-        gf = bubbleGraph_phaseBubbleGraph(bg, ref, reads, params, &readsToPSeqs);
-
-        stGenomeFragment_phaseBamChunkReads(gf, readsToPSeqs, reads, &readsBelongingToHap1, &readsBelongingToHap2,
-                                            params->phaseParams);
-        st_logInfo(" %s After phasing, of %i reads got %i reads partitioned into hap1 and %i reads partitioned "
-                   "into hap2 (%i unphased)\n", logIdentifier, (int) stList_length(reads),
-                   (int) stSet_size(readsBelongingToHap1), (int) stSet_size(readsBelongingToHap2),
-                   (int) (stList_length(reads) - stSet_size(readsBelongingToHap1) -
-                          stSet_size(readsBelongingToHap2)));
-
-        // Debug report of hets
-        if (st_getLogLevel() <= info) {
-            uint64_t totalHets = 0;
-            for (uint64_t h = 0; h < gf->length; h++) {
-                Bubble *b = &bg->bubbles[h + gf->refStart];
-                if (gf->haplotypeString1[h] != gf->haplotypeString2[h]) {
-                    st_logDebug(" %s Got predicted het at bubble %i %s %s\n", logIdentifier, (int) h + gf->refStart,
-                                b->alleles[gf->haplotypeString1[h]]->rleString,
-                                b->alleles[gf->haplotypeString2[h]]->rleString);
-                    totalHets++;
-                } else if (!rleString_eq(b->alleles[gf->haplotypeString1[h]], b->refAllele)) {
-                    st_logDebug(" %s Got predicted hom alt at bubble %i %i\n", logIdentifier,
-                                (int) h + gf->refStart,
-                                (int) gf->haplotypeString1[h]);
+        do {
+            // cleanup and iterate (if not first run through)
+            if (bubbleFindingIteration != 0) {
+                // get new hets
+                stList *filteredChunkHetAlleles = produceVcfEntriesFromBubbleGraph(bamChunk, bg, readsToPSeqs, gf,
+                        params->phaseParams->bubbleMinBinomialStrandLikelihood,
+                        params->phaseParams->bubbleMinBinomialReadSplitLikelihood);
+                int64_t filteredAlleleCount = stList_length(filteredChunkHetAlleles);
+                st_logInfo(" %s At bubble finding iteration %"PRId64", kept %"PRId64" alleles of %"PRId64"\n",
+                           logIdentifier, bubbleFindingIteration, filteredAlleleCount, bg->bubbleNo);
+                // terminate or iterate
+                if (filteredAlleleCount == 0 || filteredAlleleCount == bg->bubbleNo) {
+                    stList_destruct(filteredChunkHetAlleles);
+                    break;
+                } else {
+                    if (chunkVcfEntries != NULL) stList_destruct(chunkVcfEntries);
+                    chunkVcfEntries = filteredChunkHetAlleles;
                 }
+                // cleanup
+                bubbleGraph_destruct(bg);
+                stHash_destruct(readsToPSeqs);
+                stSet_destruct(readsBelongingToHap1);
+                stSet_destruct(readsBelongingToHap2);
+                stGenomeFragment_destruct(gf);
+                stReference_destruct(ref);
             }
-            st_logInfo(" %s In phasing chunk, got: %i hets from: %i total sites (fraction: %f)\n", logIdentifier,
-                       (int) totalHets, (int) gf->length, (float) totalHets / gf->length);
-        }
+
+
+            // Get the bubble graph representation
+            bg = bubbleGraph_constructFromPoaAndVCF(poa, reads, chunkVcfEntries, params->polishParams, TRUE);
+
+            // Now make a POA for each of the haplotypes
+            ref = bubbleGraph_getReference(bg, bamChunk->refSeqName, params);
+            gf = bubbleGraph_phaseBubbleGraph(bg, ref, reads, params, &readsToPSeqs);
+
+            stGenomeFragment_phaseBamChunkReads(gf, readsToPSeqs, reads, &readsBelongingToHap1, &readsBelongingToHap2,
+                                                params->phaseParams);
+            st_logInfo(" %s After phasing, of %i reads got %i reads partitioned into hap1 and %i reads partitioned "
+                       "into hap2 (%i unphased)\n", logIdentifier, (int) stList_length(reads),
+                       (int) stSet_size(readsBelongingToHap1), (int) stSet_size(readsBelongingToHap2),
+                       (int) (stList_length(reads) - stSet_size(readsBelongingToHap1) -
+                              stSet_size(readsBelongingToHap2)));
+
+            // Debug report of hets
+            if (st_getLogLevel() <= info) {
+                uint64_t totalHets = 0;
+                for (uint64_t h = 0; h < gf->length; h++) {
+                    Bubble *b = &bg->bubbles[h + gf->refStart];
+                    if (gf->haplotypeString1[h] != gf->haplotypeString2[h]) {
+                        st_logDebug(" %s Got predicted het at bubble %i %s %s\n", logIdentifier, (int) h + gf->refStart,
+                                    b->alleles[gf->haplotypeString1[h]]->rleString,
+                                    b->alleles[gf->haplotypeString2[h]]->rleString);
+                        totalHets++;
+                    } else if (!rleString_eq(b->alleles[gf->haplotypeString1[h]], b->refAllele)) {
+                        st_logDebug(" %s Got predicted hom alt at bubble %i %i\n", logIdentifier,
+                                    (int) h + gf->refStart,
+                                    (int) gf->haplotypeString1[h]);
+                    }
+                }
+                st_logInfo(" %s In phasing chunk, got: %i hets from: %i total sites (fraction: %f)\n", logIdentifier,
+                           (int) totalHets, (int) gf->length, (float) totalHets / gf->length);
+            }
+
+            bubbleFindingIteration++;
+        } while (FALSE && bubbleFindingIteration <= params->phaseParams->bubbleFindingIterations); //does not help MVP
 
         st_logInfo(" %s Building POA for each haplotype\n", logIdentifier);
         uint64_t *hap1 = getPaddedHaplotypeString(gf->haplotypeString1, gf, bg, params);

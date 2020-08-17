@@ -523,7 +523,7 @@ int main(int argc, char *argv[]) {
         } else {
             convertToReadsAndAlignments(bamChunk, rleReference, reads, alignments, params->polishParams);
         }
-        removeReadsStartingAfterChunkEnd(bamChunk, reads, alignments, logIdentifier);
+        removeReadsOnlyInChunkBoundary(bamChunk, reads, alignments, logIdentifier);
 
         // do downsampling if appropriate
         if (params->polishParams->maxDepth > 0) {
@@ -598,8 +598,6 @@ int main(int argc, char *argv[]) {
 
         // handle diploid case
         if(diploid) {
-
-
 
             time_t primaryPhasingStart = time(NULL);
 
@@ -720,8 +718,7 @@ int main(int argc, char *argv[]) {
                     }
                 }
                 st_logInfo(" %s Assigning %"PRId64" filtered reads to haplotypes\n", logIdentifier, stList_length(filteredReads));
-                removeReadsStartingAfterChunkEnd(bamChunk, filteredReads, filteredAlignments, logIdentifier);
-                //TODO removeReadsOnlyInChunkBoundary(bamChunk, filteredReads, filteredAlignments, logIdentifier);
+                removeReadsOnlyInChunkBoundary(bamChunk, filteredReads, filteredAlignments, logIdentifier);
 
                 time_t filteredPhasingStart = time(NULL);
                 Poa *filteredPoa = poa_realign(filteredReads, filteredAlignments, rleReference, params->polishParams);
