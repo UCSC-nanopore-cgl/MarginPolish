@@ -27,26 +27,26 @@ static void test_getRegionChunker(CuTest *testCase) {
     BamChunker *chunker = bamChunker_construct2(INPUT_BAM, "contig_1:100000-110000", params);
     CuAssertTrue(testCase, chunker->chunkCount == 1);
     CuAssertTrue(testCase, stString_eq(((BamChunk *) stList_get(chunker->chunks, 0))->refSeqName, "contig_1"));
-    CuAssertTrue(testCase, ((BamChunk *) stList_get(chunker->chunks, 0))->chunkBoundaryStart == 100000);
-    CuAssertTrue(testCase, ((BamChunk *) stList_get(chunker->chunks, 0))->chunkBoundaryEnd == 100008);
+    CuAssertTrue(testCase, ((BamChunk *) stList_get(chunker->chunks, 0))->chunkOverlapStart == 100000);
+    CuAssertTrue(testCase, ((BamChunk *) stList_get(chunker->chunks, 0))->chunkOverlapEnd == 100008);
 
     // test whole contig by region
     chunker = bamChunker_construct2(INPUT_BAM, "contig_1:0-3000000", params);
     CuAssertTrue(testCase, chunker->chunkCount == 1);
     CuAssertTrue(testCase, stString_eq(((BamChunk *) stList_get(chunker->chunks, 0))->refSeqName, "contig_1"));
-    CuAssertTrue(testCase, ((BamChunk *) stList_get(chunker->chunks, 0))->chunkBoundaryStart == 100000);
-    CuAssertTrue(testCase, ((BamChunk *) stList_get(chunker->chunks, 0))->chunkBoundaryEnd == 2100008);
+    CuAssertTrue(testCase, ((BamChunk *) stList_get(chunker->chunks, 0))->chunkOverlapStart == 100000);
+    CuAssertTrue(testCase, ((BamChunk *) stList_get(chunker->chunks, 0))->chunkOverlapEnd == 2100008);
     free(chunker->params);
 
     params = getParameters(100000, 0, FALSE);
     chunker = bamChunker_construct2(INPUT_BAM, "contig_1:100000-300000", params);
     CuAssertTrue(testCase, chunker->chunkCount == 2);
     CuAssertTrue(testCase, stString_eq(((BamChunk *) stList_get(chunker->chunks, 0))->refSeqName, "contig_1"));
-    CuAssertTrue(testCase, ((BamChunk *) stList_get(chunker->chunks, 0))->chunkBoundaryStart == 100000);
-    CuAssertTrue(testCase, ((BamChunk *) stList_get(chunker->chunks, 0))->chunkBoundaryEnd == 200000);
+    CuAssertTrue(testCase, ((BamChunk *) stList_get(chunker->chunks, 0))->chunkOverlapStart == 100000);
+    CuAssertTrue(testCase, ((BamChunk *) stList_get(chunker->chunks, 0))->chunkOverlapEnd == 200000);
     CuAssertTrue(testCase, stString_eq(((BamChunk *) stList_get(chunker->chunks, 1))->refSeqName, "contig_1"));
-    CuAssertTrue(testCase, ((BamChunk *) stList_get(chunker->chunks, 1))->chunkBoundaryStart == 200000);
-    CuAssertTrue(testCase, ((BamChunk *) stList_get(chunker->chunks, 1))->chunkBoundaryEnd ==
+    CuAssertTrue(testCase, ((BamChunk *) stList_get(chunker->chunks, 1))->chunkOverlapStart == 200000);
+    CuAssertTrue(testCase, ((BamChunk *) stList_get(chunker->chunks, 1))->chunkOverlapEnd ==
                            210020); //end pos stops at last aligned pos
     free(chunker->params);
 
@@ -268,8 +268,8 @@ static void test_getReadsWithoutSoftClipping(CuTest *testCase) {
     bool foundChunk = FALSE;
     for (int64_t chunkIdx = 0; chunkIdx < chunker->chunkCount; chunkIdx++) {
         chunk = bamChunker_getChunk(chunker, chunkIdx);
-        if (!stString_eq(chunk->refSeqName, "contig_1") || !(chunk->chunkBoundaryStart == 200000 &&
-                                                             chunk->chunkBoundaryEnd == 300000))
+        if (!stString_eq(chunk->refSeqName, "contig_1") || !(chunk->chunkOverlapStart == 200000 &&
+                                                             chunk->chunkOverlapEnd == 300000))
             continue;
         CuAssertTrue(testCase, !foundChunk);
         foundChunk = TRUE;
@@ -299,8 +299,8 @@ static void test_getReadsWithSoftClipping(CuTest *testCase) {
     bool foundChunk = FALSE;
     for (int64_t chunkIdx = 0; chunkIdx < chunker->chunkCount; chunkIdx++) {
         chunk = bamChunker_getChunk(chunker, chunkIdx);
-        if (!stString_eq(chunk->refSeqName, "contig_1") || !(chunk->chunkBoundaryStart == 200000 &&
-                                                             chunk->chunkBoundaryEnd == 300000))
+        if (!stString_eq(chunk->refSeqName, "contig_1") || !(chunk->chunkOverlapStart == 200000 &&
+                                                             chunk->chunkOverlapEnd == 300000))
             continue;
         CuAssertTrue(testCase, !foundChunk);
         foundChunk = TRUE;
@@ -337,8 +337,8 @@ static void test_readAlignmentsWithoutSoftclippingChunkStart(CuTest *testCase) {
     bool foundChunk = FALSE;
     for (int64_t chunkIdx = 0; chunkIdx < chunker->chunkCount; chunkIdx++) {
         chunk = bamChunker_getChunk(chunker, chunkIdx);
-        if (!stString_eq(chunk->refSeqName, "contig_1") || !(chunk->chunkBoundaryStart == 400000 &&
-                                                             chunk->chunkBoundaryEnd == 401000))
+        if (!stString_eq(chunk->refSeqName, "contig_1") || !(chunk->chunkOverlapStart == 400000 &&
+                                                             chunk->chunkOverlapEnd == 401000))
             continue;
         CuAssertTrue(testCase, !foundChunk);
         foundChunk = TRUE;
@@ -506,8 +506,8 @@ static void test_readAlignmentsWithSoftclippingChunkStart(CuTest *testCase) {
     bool foundChunk = FALSE;
     for (int64_t chunkIdx = 0; chunkIdx < chunker->chunkCount; chunkIdx++) {
         chunk = bamChunker_getChunk(chunker, chunkIdx);
-        if (!stString_eq(chunk->refSeqName, "contig_1") || !(chunk->chunkBoundaryStart == 400000 &&
-                                                             chunk->chunkBoundaryEnd == 401000))
+        if (!stString_eq(chunk->refSeqName, "contig_1") || !(chunk->chunkOverlapStart == 400000 &&
+                                                             chunk->chunkOverlapEnd == 401000))
             continue;
         CuAssertTrue(testCase, !foundChunk);
         foundChunk = TRUE;
@@ -674,8 +674,8 @@ static void test_readAlignmentsWithoutSoftclippingChunkEnd(CuTest *testCase) {
     bool foundChunk = FALSE;
     for (int64_t chunkIdx = 0; chunkIdx < chunker->chunkCount; chunkIdx++) {
         chunk = bamChunker_getChunk(chunker, chunkIdx);
-        if (!stString_eq(chunk->refSeqName, "contig_1") || !(chunk->chunkBoundaryStart == 410000 &&
-                                                             chunk->chunkBoundaryEnd == 410020))
+        if (!stString_eq(chunk->refSeqName, "contig_1") || !(chunk->chunkOverlapStart == 410000 &&
+                                                             chunk->chunkOverlapEnd == 410020))
             continue;
         CuAssertTrue(testCase, !foundChunk);
         foundChunk = TRUE;
@@ -828,8 +828,8 @@ static void test_readAlignmentsWithSoftclippingChunkEnd(CuTest *testCase) {
     bool foundChunk = FALSE;
     for (int64_t chunkIdx = 0; chunkIdx < chunker->chunkCount; chunkIdx++) {
         chunk = bamChunker_getChunk(chunker, chunkIdx);
-        if (!stString_eq(chunk->refSeqName, "contig_1") || !(chunk->chunkBoundaryStart == 410000 &&
-                                                             chunk->chunkBoundaryEnd == 410020))
+        if (!stString_eq(chunk->refSeqName, "contig_1") || !(chunk->chunkOverlapStart == 410000 &&
+                                                             chunk->chunkOverlapEnd == 410020))
             continue;
         CuAssertTrue(testCase, !foundChunk);
         foundChunk = TRUE;

@@ -1258,7 +1258,7 @@ BubbleGraph *bubbleGraph_partitionFilteredReads(Poa *poa, stList *bamChunkReads,
             } else {
                 fprintf(out, ",\n  {\n");
             }
-            int64_t trueRefStartPos = bamChunk->chunkBoundaryStart + reference_rleToNonRleCoordMap[b->refStart];
+            int64_t trueRefStartPos = bamChunk->chunkOverlapStart + reference_rleToNonRleCoordMap[b->refStart];
             fprintf(out, "   \"refPos\": %"PRId64",\n", trueRefStartPos);
             fprintf(out, "   \"rleRefPos\": %"PRId64",\n", b->refStart);
             fprintf(out, "   \"reads\": [");
@@ -1621,7 +1621,7 @@ void bubbleGraph_saveBubblePhasingInfo(BamChunk *bamChunk, BubbleGraph *bg, stHa
         }
 
         // bubble info
-        int64_t trueRefStartPos = bamChunk->chunkBoundaryStart + reference_rleToNonRleCoordMap[b->refStart];
+        int64_t trueRefStartPos = bamChunk->chunkOverlapStart + reference_rleToNonRleCoordMap[b->refStart];
         double strandSkew = bubble_phasedStrandSkew(b, readsToPSeqs, gF);
         fprintf(out, "   \"refPos\": %"PRId64",\n", trueRefStartPos);
         fprintf(out, "   \"rleRefPos\": %"PRId64",\n", b->refStart);

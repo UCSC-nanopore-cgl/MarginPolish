@@ -179,19 +179,19 @@ void PoaFeature_handleHelenFeatures(
         case HFEAT_SIMPLE_WEIGHT:
             helenFeatureOutfileBase = stString_print("simpleWeight.C%05"PRId64".%s-%"PRId64"-%"PRId64,
                                                      chunkIdx, bamChunk->refSeqName,
-                                                     bamChunk->chunkBoundaryStart, bamChunk->chunkBoundaryEnd);
+                                                     bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd);
             break;
         case HFEAT_SPLIT_RLE_WEIGHT:
             // name of folder, not of file
             helenFeatureOutfileBase = stString_print("splitRleWeight.C%05"PRId64".%s-%"PRId64"-%"PRId64,
                                                      chunkIdx, bamChunk->refSeqName,
-                                                     bamChunk->chunkBoundaryStart, bamChunk->chunkBoundaryEnd);
+                                                     bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd);
             break;
         case HFEAT_CHANNEL_RLE_WEIGHT:
             // name of folder, not of file
             helenFeatureOutfileBase = stString_print("channelRleWeight.C%05"PRId64".%s-%"PRId64"-%"PRId64,
                                                      chunkIdx, bamChunk->refSeqName,
-                                                     bamChunk->chunkBoundaryStart, bamChunk->chunkBoundaryEnd);
+                                                     bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd);
             break;
         default:
             st_errAbort("Unhandled HELEN feature type!\n");
@@ -295,8 +295,8 @@ void PoaFeature_handleHelenFeatures(
             char *chunkPolishedRefFilename = stString_print("%s.fa", helenFeatureOutfileBase);
             char *chunkPolishedRefContigName = stString_print("%s\t%"PRId64"\t%"PRId64"\t%s",
                                                               bamChunk->refSeqName,
-                                                              bamChunk->chunkBoundaryStart,
-                                                              bamChunk->chunkBoundaryEnd,
+                                                              bamChunk->chunkOverlapStart,
+                                                              bamChunk->chunkOverlapEnd,
                                                               helenFeatureOutfileBase);
             FILE *chunkPolishedRefOutFh = fopen(chunkPolishedRefFilename, "w");
             fastaWrite(polishedConsensusString, chunkPolishedRefContigName, chunkPolishedRefOutFh);
@@ -1024,7 +1024,7 @@ void PoaFeature_handleDiploidHelenFeatures(
         case HFEAT_DIPLOID_RLE_WEIGHT:
             helenFeatureOutfileBase = stString_print("diploidRleWeight.C%05"PRId64".%s-%"PRId64"-%"PRId64,
                                                      chunkIdx, bamChunk->refSeqName,
-                                                     bamChunk->chunkBoundaryStart, bamChunk->chunkBoundaryEnd);
+                                                     bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd);
             break;
         default:
             st_errAbort("Unhandled HELEN feature type!\n");
@@ -2694,11 +2694,11 @@ writeSimpleWeightHelenFeaturesHDF5(Alphabet *alphabet, HelenFeatureHDF5FileInfo 
         hid_t contigStartDataset = H5Dcreate(group, "contig_start", hdf5FileInfo->int64Type, metadataSpace,
                                              H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
         status |= H5Dwrite(contigStartDataset, hdf5FileInfo->int64Type,
-                           H5S_ALL, H5S_ALL, H5P_DEFAULT, &bamChunk->chunkBoundaryStart);
+                           H5S_ALL, H5S_ALL, H5P_DEFAULT, &bamChunk->chunkOverlapStart);
         hid_t contigEndDataset = H5Dcreate(group, "contig_end", hdf5FileInfo->int64Type, metadataSpace,
                                            H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
         status |= H5Dwrite(contigEndDataset, hdf5FileInfo->int64Type,
-                           H5S_ALL, H5S_ALL, H5P_DEFAULT, &bamChunk->chunkBoundaryEnd);
+                           H5S_ALL, H5S_ALL, H5P_DEFAULT, &bamChunk->chunkOverlapEnd);
         hid_t chunkIndexDataset = H5Dcreate(group, "feature_chunk_idx", hdf5FileInfo->int64Type, metadataSpace,
                                             H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
         status |= H5Dwrite(chunkIndexDataset, hdf5FileInfo->int64Type, H5S_ALL, H5S_ALL, H5P_DEFAULT, &featureIndex);
@@ -2855,7 +2855,7 @@ writeSplitRleWeightHelenFeaturesHDF5(Alphabet *alphabet, HelenFeatureHDF5FileInf
                     if (labelRunLengthData[featureCount][0] > maxRunLength) {
                         st_errAbort("Encountered run length of %d (max %"PRId64") in chunk %s:%"PRId64"-%"PRId64,
                                     labelRunLengthData[featureCount][0], maxRunLength, bamChunk->refSeqName,
-                                    bamChunk->chunkBoundaryStart, bamChunk->chunkBoundaryEnd);
+                                    bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd);
                     }
                 }
 
@@ -2924,11 +2924,11 @@ writeSplitRleWeightHelenFeaturesHDF5(Alphabet *alphabet, HelenFeatureHDF5FileInf
         hid_t contigStartDataset = H5Dcreate(group, "contig_start", hdf5FileInfo->int64Type, metadataSpace, H5P_DEFAULT,
                                              H5P_DEFAULT, H5P_DEFAULT);
         status |= H5Dwrite(contigStartDataset, hdf5FileInfo->int64Type, H5S_ALL, H5S_ALL, H5P_DEFAULT,
-                           &bamChunk->chunkBoundaryStart);
+                           &bamChunk->chunkOverlapStart);
         hid_t contigEndDataset = H5Dcreate(group, "contig_end", hdf5FileInfo->int64Type, metadataSpace, H5P_DEFAULT,
                                            H5P_DEFAULT, H5P_DEFAULT);
         status |= H5Dwrite(contigEndDataset, hdf5FileInfo->int64Type, H5S_ALL, H5S_ALL, H5P_DEFAULT,
-                           &bamChunk->chunkBoundaryEnd);
+                           &bamChunk->chunkOverlapEnd);
         hid_t chunkIndexDataset = H5Dcreate(group, "feature_chunk_idx", hdf5FileInfo->int64Type, metadataSpace,
                                             H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
         status |= H5Dwrite(chunkIndexDataset, hdf5FileInfo->int64Type, H5S_ALL, H5S_ALL, H5P_DEFAULT, &featureIndex);
@@ -3125,7 +3125,7 @@ writeChannelRleWeightHelenFeaturesHDF5(Alphabet *alphabet, HelenFeatureHDF5FileI
                     if (labelRunLengthData[featureCount][0] > maxRunLength) {
                         st_errAbort("Encountered run length of %d (max %"PRId64") in chunk %s:%"PRId64"-%"PRId64,
                                     labelRunLengthData[featureCount][0], maxRunLength, bamChunk->refSeqName,
-                                    bamChunk->chunkBoundaryStart, bamChunk->chunkBoundaryEnd);
+                                    bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd);
                     }
                 }
 
@@ -3197,11 +3197,11 @@ writeChannelRleWeightHelenFeaturesHDF5(Alphabet *alphabet, HelenFeatureHDF5FileI
         hid_t contigStartDataset = H5Dcreate(group, "contig_start", hdf5FileInfo->int64Type, metadataSpace, H5P_DEFAULT,
                                              H5P_DEFAULT, H5P_DEFAULT);
         status |= H5Dwrite(contigStartDataset, hdf5FileInfo->int64Type, H5S_ALL, H5S_ALL, H5P_DEFAULT,
-                           &bamChunk->chunkBoundaryStart);
+                           &bamChunk->chunkOverlapStart);
         hid_t contigEndDataset = H5Dcreate(group, "contig_end", hdf5FileInfo->int64Type, metadataSpace, H5P_DEFAULT,
                                            H5P_DEFAULT, H5P_DEFAULT);
         status |= H5Dwrite(contigEndDataset, hdf5FileInfo->int64Type, H5S_ALL, H5S_ALL, H5P_DEFAULT,
-                           &bamChunk->chunkBoundaryEnd);
+                           &bamChunk->chunkOverlapEnd);
         hid_t chunkIndexDataset = H5Dcreate(group, "feature_chunk_idx", hdf5FileInfo->int64Type, metadataSpace,
                                             H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
         status |= H5Dwrite(chunkIndexDataset, hdf5FileInfo->int64Type, H5S_ALL, H5S_ALL, H5P_DEFAULT, &featureIndex);
@@ -3384,7 +3384,7 @@ void writeDiploidRleWeightHelenFeaturesHDF5(Alphabet *alphabet, HelenFeatureHDF5
                     if (labelRunLengthData[featureCount][0] > maxRunLength) {
                         st_errAbort("Encountered run length of %d (max %"PRId64") in H1 chunk %s:%"PRId64"-%"PRId64,
                                     labelRunLengthData[featureCount][0], maxRunLength, bamChunk->refSeqName,
-                                    bamChunk->chunkBoundaryStart, bamChunk->chunkBoundaryEnd);
+                                    bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd);
                     }
                 }
 
@@ -3451,11 +3451,11 @@ void writeDiploidRleWeightHelenFeaturesHDF5(Alphabet *alphabet, HelenFeatureHDF5
         hid_t contigStartDataset = H5Dcreate(group, "contig_start", hdf5FileInfo->int64Type, metadataSpace, H5P_DEFAULT,
                                              H5P_DEFAULT, H5P_DEFAULT);
         status |= H5Dwrite(contigStartDataset, hdf5FileInfo->int64Type, H5S_ALL, H5S_ALL, H5P_DEFAULT,
-                           &bamChunk->chunkBoundaryStart);
+                           &bamChunk->chunkOverlapStart);
         hid_t contigEndDataset = H5Dcreate(group, "contig_end", hdf5FileInfo->int64Type, metadataSpace, H5P_DEFAULT,
                                            H5P_DEFAULT, H5P_DEFAULT);
         status |= H5Dwrite(contigEndDataset, hdf5FileInfo->int64Type, H5S_ALL, H5S_ALL, H5P_DEFAULT,
-                           &bamChunk->chunkBoundaryEnd);
+                           &bamChunk->chunkOverlapEnd);
         hid_t chunkIndexDataset = H5Dcreate(group, "feature_chunk_idx", hdf5FileInfo->int64Type, metadataSpace,
                                             H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
         status |= H5Dwrite(chunkIndexDataset, hdf5FileInfo->int64Type, H5S_ALL, H5S_ALL, H5P_DEFAULT, &featureIndex);

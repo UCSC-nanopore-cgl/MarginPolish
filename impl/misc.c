@@ -79,8 +79,8 @@ RleString *bamChunk_getReferenceSubstring(BamChunk *bamChunk, stHash *referenceS
         return NULL;
     }
     int64_t refLen = strlen(fullReferenceString);
-    char *referenceString = stString_getSubString(fullReferenceString, bamChunk->chunkBoundaryStart,
-                                                  (refLen < bamChunk->chunkBoundaryEnd ? refLen : bamChunk->chunkBoundaryEnd) - bamChunk->chunkBoundaryStart);
+    char *referenceString = stString_getSubString(fullReferenceString, bamChunk->chunkOverlapStart,
+                                                  (refLen < bamChunk->chunkOverlapEnd ? refLen : bamChunk->chunkOverlapEnd) - bamChunk->chunkOverlapStart);
 
     int64_t subRefLen = strlen(referenceString);
     // TODO: Decide where the proper place to do this is
@@ -148,7 +148,7 @@ double fromPhred(double phred) {
 
 
 void removeReadsStartingAfterChunkEnd(BamChunk *bamChunk, stList *reads, stList *alignments, char *logIdentifier) {
-    int64_t chunkEnd = bamChunk->chunkEnd - bamChunk->chunkBoundaryStart;
+    int64_t chunkEnd = bamChunk->chunkEnd - bamChunk->chunkOverlapStart;
     stList *indicesToRemove = stList_construct();
     for (int64_t i = stList_length(reads) - 1; i >= 0; i--) {
         stList *alignment = stList_get(alignments, i);
@@ -171,8 +171,8 @@ void removeReadsStartingAfterChunkEnd(BamChunk *bamChunk, stList *reads, stList 
 }
 
 void removeReadsOnlyInChunkBoundary(BamChunk *bamChunk, stList *reads, stList *alignments, char *logIdentifier) {
-    int64_t chunkEnd = bamChunk->chunkEnd - bamChunk->chunkBoundaryStart;
-    int64_t chunkStart = bamChunk->chunkStart - bamChunk->chunkBoundaryStart;
+    int64_t chunkEnd = bamChunk->chunkEnd - bamChunk->chunkOverlapStart;
+    int64_t chunkStart = bamChunk->chunkStart - bamChunk->chunkOverlapStart;
     stList *indicesToRemove = stList_construct();
     for (int64_t i = stList_length(reads) - 1; i >= 0; i--) {
         stList *alignment = stList_get(alignments, i);
@@ -222,8 +222,8 @@ void writePhasedReadInfoJSON(BamChunk *bamChunk, stList *primaryReads, stList *p
         fprintf(out, "\n  {\n");
         fprintf(out, "     \"name\": \"%s\",\n", read->readName);
         fprintf(out, "     \"strand\": \"%s\",\n", read->forwardStrand ? "+" : "-");
-        fprintf(out, "     \"startPos\": %"PRId64",\n", bamChunk->chunkBoundaryStart + reference_rleToNonRleCoordMap[stIntTuple_get(firstAlign, 0)]);
-        fprintf(out, "     \"endPos\": %"PRId64",\n", bamChunk->chunkBoundaryStart + reference_rleToNonRleCoordMap[stIntTuple_get(lastAlign, 0)]);
+        fprintf(out, "     \"startPos\": %"PRId64",\n", bamChunk->chunkOverlapStart + reference_rleToNonRleCoordMap[stIntTuple_get(firstAlign, 0)]);
+        fprintf(out, "     \"endPos\": %"PRId64",\n", bamChunk->chunkOverlapStart + reference_rleToNonRleCoordMap[stIntTuple_get(lastAlign, 0)]);
         fprintf(out, "     \"hap\": %d\n", hap);
         fprintf(out, "  }");
     }
@@ -245,8 +245,8 @@ void writePhasedReadInfoJSON(BamChunk *bamChunk, stList *primaryReads, stList *p
         fprintf(out, ",\n  {\n");
         fprintf(out, "     \"name\": \"%s\",\n", read->readName);
         fprintf(out, "     \"strand\": \"%s\",\n", read->forwardStrand ? "+" : "-");
-        fprintf(out, "     \"startPos\": %"PRId64",\n", bamChunk->chunkBoundaryStart + reference_rleToNonRleCoordMap[stIntTuple_get(firstAlign, 0)]);
-        fprintf(out, "     \"endPos\": %"PRId64",\n", bamChunk->chunkBoundaryStart + reference_rleToNonRleCoordMap[stIntTuple_get(lastAlign, 0)]);
+        fprintf(out, "     \"startPos\": %"PRId64",\n", bamChunk->chunkOverlapStart + reference_rleToNonRleCoordMap[stIntTuple_get(firstAlign, 0)]);
+        fprintf(out, "     \"endPos\": %"PRId64",\n", bamChunk->chunkOverlapStart + reference_rleToNonRleCoordMap[stIntTuple_get(lastAlign, 0)]);
         fprintf(out, "     \"hap\": %d\n", hap);
         fprintf(out, "  }");
     }
@@ -335,4 +335,119 @@ stList *produceVcfEntriesFromBubbleGraph(BamChunk *bamChunk, BubbleGraph *bg, st
             logIdentifier, passes, total, failsStrandSkew, failsReadSkew);
     free(logIdentifier);
     return vcfEntries;
+}
+
+ChunkTruthHaplotypes **chunkTruthHaplotypes_construct(int64_t length) {
+    ChunkTruthHaplotypes **cths = st_calloc(length, sizeof(ChunkTruthHaplotypes *));
+    for (int i = 0; i < length; i++) {
+        ChunkTruthHaplotypes *cth = st_calloc(1, sizeof(ChunkTruthHaplotypes));
+        cth->chunkIdx = i;
+        cth->hap1Reads = stList_construct3(0, free);
+        cth->hap2Reads = stList_construct3(0, free);
+        cths[i] = cth;
+    }
+    return cths;
+}
+void chunkTruthHaplotypes_destruct(ChunkTruthHaplotypes **chunkTruthHaplotypes, int64_t length) {
+    for (int i = 0; i < length; i++) {
+        ChunkTruthHaplotypes *cth = chunkTruthHaplotypes[i];
+        stList_destruct(cth->hap1Reads);
+        stList_destruct(cth->hap2Reads);
+        free(cth);
+    }
+    free(chunkTruthHaplotypes);
+}
+bool chunkTruthHaplotypes_isChunkTruthRead(char *readId) {
+    if (strlen(readId) <= CHUNK_TRUTH_READ_ID_LEN) return FALSE;
+    for (int64_t i = 0; i < CHUNK_TRUTH_READ_ID_LEN; i++) {
+        if (CHUNK_TRUTH_READ_ID[i] != readId[i]) return FALSE;
+    }
+    if (readId[CHUNK_TRUTH_READ_ID_LEN] != CHUNK_TRUTH_READ_ID_SEP[0]) return FALSE;
+    return TRUE;
+}
+void *chunkTruthHaplotypes_print(stList *readsInHap1, stList *readsInHap2, stList *bamChunks, int64_t length, char *filename) {
+    ChunkTruthHaplotypes **cths = chunkTruthHaplotypes_construct(length);
+
+    // get reads
+    #pragma omp parallel for schedule(static,1)
+    for (int hap = 1; hap <= 2; hap++) {
+        stList *readNames = hap == 1 ? readsInHap1 : readsInHap2;
+        stListIterator *itor = stList_getIterator(readNames);
+        char *cthReadName = NULL;
+        while ((cthReadName = stList_getNext(itor)) != NULL) {
+            if (!chunkTruthHaplotypes_isChunkTruthRead(cthReadName)) continue;
+
+            // get parts
+            stList *parts = stString_splitByString(cthReadName, CHUNK_TRUTH_READ_ID_SEP);
+            assert(stList_length(parts) >= 3);
+
+            // get chunk idx
+            char *ptr;
+            int64_t chunkIdx = strtol(stList_get(parts, 1), &ptr, 10);
+
+            // get read name
+            stList_removeInterval(parts, 0, 2);
+            char *readName = stString_join2(CHUNK_TRUTH_READ_ID_SEP, parts);
+
+            // save it
+            ChunkTruthHaplotypes *cth = cths[chunkIdx];
+            stList_append((hap == 1 ? cth->hap1Reads : cth->hap2Reads), readName);
+
+            // cleanup
+            stList_destruct(parts);
+        }
+        stList_destructIterator(itor);
+    }
+
+    // write
+    FILE *out = fopen(filename, "w");
+    fprintf(out, "#contig\tstartPos\tendPos\toverlapStart\toverlapEnd\thap\tsequenceName\n");
+    for (int64_t chunkIdx = 0; chunkIdx < length; chunkIdx++) {
+        ChunkTruthHaplotypes *cth = cths[chunkIdx];
+        BamChunk *bc = stList_get(bamChunks, chunkIdx);
+        for (int64_t readIdx = 0; readIdx < stList_length(cth->hap1Reads); readIdx++) {
+            fprintf(out, "%s\t%"PRId64"\t%"PRId64"\t%"PRId64"\t%"PRId64"\t1\t%s\n", bc->refSeqName, bc->chunkStart,
+                    bc->chunkEnd, bc->chunkOverlapStart, bc->chunkOverlapEnd,
+                    (char*) stList_get(cth->hap1Reads, readIdx));
+        }
+        for (int64_t readIdx = 0; readIdx < stList_length(cth->hap2Reads); readIdx++) {
+            fprintf(out, "%s\t%"PRId64"\t%"PRId64"\t%"PRId64"\t%"PRId64"\t2\t%s\n", bc->refSeqName, bc->chunkStart,
+                    bc->chunkEnd, bc->chunkOverlapStart, bc->chunkOverlapEnd,
+                    (char*) stList_get(cth->hap2Reads, readIdx));
+        }
+    }
+
+    // cleanup
+    fclose(out);
+    chunkTruthHaplotypes_destruct(cths, length);
+}
+
+
+void chunkTruthHaplotypes_addTruthReadsToFilteredReadSet(BamChunk *bamChunk, BamChunker *bamChunker,
+        stList *readsToAdd, stList *alignmentsToAdd, RleString *rleReference, Params *params, char *logIdentifier) {
+
+    stList *reads = stList_construct();
+    stList *alignments = stList_construct();
+    BamChunker *tmp = bamChunk->parent;
+    bamChunk->parent = bamChunker;
+    convertToReadsAndAlignments(bamChunk, rleReference, reads, alignments, params->polishParams);
+    bamChunk->parent = tmp;
+    st_logInfo(" %s Saving %"PRId64" truth reads from file: %s\n", logIdentifier, stList_length(reads),
+               bamChunker->bamFile);
+
+    for (int64_t i = 0; i < stList_length(reads); i++) {
+        BamChunkRead *bcr = stList_get(reads, i);
+
+        // just giving them a new name should make the rest of the infrastructure work
+        char *newName = stString_print("%s%s%"PRId64"%s%s", CHUNK_TRUTH_READ_ID, CHUNK_TRUTH_READ_ID_SEP,
+                                       bamChunk->chunkIdx, CHUNK_TRUTH_READ_ID_SEP, bcr->readName);
+        free(bcr->readName);
+        bcr->readName = newName;
+        stList_append(readsToAdd, bcr);
+        stList_append(alignmentsToAdd, stList_get(alignments, i));
+    }
+
+    // cleanup
+    stList_destruct(reads);
+    stList_destruct(alignments);
 }

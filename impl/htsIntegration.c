@@ -347,15 +347,15 @@ BamChunk *bamChunk_construct() {
     return bamChunk_construct2(NULL, 0, 0, 0, 0, 0, 0, NULL);
 }
 
-BamChunk *bamChunk_construct2(char *refSeqName, int64_t chunkIndex, int64_t chunkBoundaryStart, int64_t chunkStart, int64_t chunkEnd,
-                              int64_t chunkBoundaryEnd, int64_t depth, BamChunker *parent) {
+BamChunk *bamChunk_construct2(char *refSeqName, int64_t chunkIndex, int64_t chunkOverlapStart, int64_t chunkStart, int64_t chunkEnd,
+                              int64_t chunkOverlapEnd, int64_t depth, BamChunker *parent) {
     BamChunk *c = malloc(sizeof(BamChunk));
     c->chunkIdx = chunkIndex;
     c->refSeqName = stString_copy(refSeqName);
-    c->chunkBoundaryStart = chunkBoundaryStart;
+    c->chunkOverlapStart = chunkOverlapStart;
     c->chunkStart = chunkStart;
     c->chunkEnd = chunkEnd;
-    c->chunkBoundaryEnd = chunkBoundaryEnd;
+    c->chunkOverlapEnd = chunkOverlapEnd;
     c->estimatedDepth = depth;
     c->parent = parent;
     return c;
@@ -365,10 +365,10 @@ BamChunk *bamChunk_copyConstruct(BamChunk *toCopy) {
     BamChunk *c = malloc(sizeof(BamChunk));
     c->chunkIdx = toCopy->chunkIdx;
     c->refSeqName = stString_copy(toCopy->refSeqName);
-    c->chunkBoundaryStart = toCopy->chunkBoundaryStart;
+    c->chunkOverlapStart = toCopy->chunkOverlapStart;
     c->chunkStart = toCopy->chunkStart;
     c->chunkEnd = toCopy->chunkEnd;
-    c->chunkBoundaryEnd = toCopy->chunkBoundaryEnd;
+    c->chunkOverlapEnd = toCopy->chunkOverlapEnd;
     c->estimatedDepth = toCopy->estimatedDepth;
     c->parent = toCopy->parent;
     return c;
@@ -409,8 +409,8 @@ uint32_t convertToReadsAndAlignmentsWithFiltered(BamChunk *bamChunk, RleString *
             reference == NULL ? NULL : rleString_getNonRleToRleCoordinateMap(reference);
 
     // prep
-    int64_t chunkStart = bamChunk->chunkBoundaryStart;
-    int64_t chunkEnd = bamChunk->chunkBoundaryEnd;
+    int64_t chunkStart = bamChunk->chunkOverlapStart;
+    int64_t chunkEnd = bamChunk->chunkOverlapEnd;
     bool includeSoftClip = bamChunk->parent->params->includeSoftClipping;
     char *bamFile = bamChunk->parent->bamFile;
     char *contig = bamChunk->refSeqName;
@@ -428,8 +428,8 @@ uint32_t convertToReadsAndAlignmentsWithFiltered(BamChunk *bamChunk, RleString *
     int result;
     samview_settings_t settings = {.bed = NULL};
     char *region[1] = {};
-    region[0] = stString_print("%s:%d-%d", bamChunk->refSeqName, bamChunk->chunkBoundaryStart,
-                               bamChunk->chunkBoundaryEnd);
+    region[0] = stString_print("%s:%d-%d", bamChunk->refSeqName, bamChunk->chunkOverlapStart,
+                               bamChunk->chunkOverlapEnd);
     settings.bed = bed_hash_regions(settings.bed, region, 0, 1,
                                     &filter_op); //insert(1) or filter out(0) the regions from the command line in the same hash table as the bed file
     if (!filter_op) filter_state = FILTERED;
@@ -744,7 +744,7 @@ bool downsampleViaReadLikelihood(int64_t intendedDepth, BamChunk *bamChunk, stLi
         BamChunkRead *bcr = stList_get(inputReads, i);
         totalNucleotides += bcr->rleRead->length;
     }
-    int64_t chunkSize = bamChunk->chunkBoundaryEnd - bamChunk->chunkBoundaryStart;
+    int64_t chunkSize = bamChunk->chunkOverlapEnd - bamChunk->chunkOverlapStart;
     double averageDepth = 1.0 * totalNucleotides / (chunkSize);
 
     // do we need to downsample?
@@ -872,7 +872,7 @@ bool downsampleViaHetSpanLikelihood(int64_t intendedDepth, BamChunk *bamChunk, s
         readHets[i] = (int) hetCount;
         totalScaledHetSiteCount += hetCount;
     }
-    int64_t chunkSize = bamChunk->chunkBoundaryEnd - bamChunk->chunkBoundaryStart;
+    int64_t chunkSize = bamChunk->chunkOverlapEnd - bamChunk->chunkOverlapStart;
     double averageDepth = 1.0 * totalNucleotides / (chunkSize);
 
     // do we need to downsample?
@@ -932,7 +932,7 @@ bool downsampleViaFullReadLengthLikelihood(int64_t intendedDepth, BamChunk *bamC
         // give reads a pseudocount
         readFullLengths[i] = (int) bcr->fullReadLength;
     }
-    int64_t chunkSize = bamChunk->chunkBoundaryEnd - bamChunk->chunkBoundaryStart;
+    int64_t chunkSize = bamChunk->chunkOverlapEnd - bamChunk->chunkOverlapStart;
     double averageDepth = 1.0 * totalNucleotides / (chunkSize);
 
     // do we need to downsample?
@@ -990,10 +990,10 @@ void writeHaplotaggedBam(BamChunk *bamChunk, char *inputBamLocation, char *outpu
         chunkIdentifier = stString_print("");
     } else if (bamChunk->chunkIdx == -1) {
         chunkIdentifier = stString_print(".%s-%"PRId64"-%"PRId64, bamChunk->refSeqName,
-            bamChunk->chunkBoundaryStart, bamChunk->chunkBoundaryEnd);
+            bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd);
     } else {
         chunkIdentifier = stString_print(".C%05"PRId64".%s-%"PRId64"-%"PRId64, bamChunk->chunkIdx, bamChunk->refSeqName,
-                                         bamChunk->chunkBoundaryStart, bamChunk->chunkBoundaryEnd);
+                                         bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd);
     }
     char *haplotaggedBamOutFile = stString_print("%s%s.haplotagged.bam", outputBamFileBase, chunkIdentifier);
     st_logInfo(" %s Writing BAM haplotype output to: %s \n", logIdentifier, haplotaggedBamOutFile);
@@ -1034,8 +1034,8 @@ void writeHaplotaggedBam(BamChunk *bamChunk, char *inputBamLocation, char *outpu
 
     //TODO validate how to read with and without a region
     if (bamChunk != NULL) {
-        region[0] = stString_print("%s:%d-%d", bamChunk->refSeqName, bamChunk->chunkBoundaryStart,
-                                   bamChunk->chunkBoundaryEnd);
+        region[0] = stString_print("%s:%d-%d", bamChunk->refSeqName, bamChunk->chunkOverlapStart,
+                                   bamChunk->chunkOverlapEnd);
         settings.bed = bed_hash_regions(settings.bed, region, 0, 1,
                                         &filter_op); //insert(1) or filter out(0) the regions from the command line in the same hash table as the bed file
         if (!filter_op) filter_state = FILTERED;
@@ -1117,7 +1117,7 @@ void poa_writeSupplementalChunkInformation2(char *outputBase, char *haplotypeIde
 
     if (outputPoaDOT) {
         char *outputPoaDotFilename = stString_print("%s.poa.C%05"PRId64".%s-%"PRId64"-%"PRId64"%s.dot",
-                                                    outputBase, chunkIdx, bamChunk->refSeqName, bamChunk->chunkBoundaryStart, bamChunk->chunkBoundaryEnd,
+                                                    outputBase, chunkIdx, bamChunk->refSeqName, bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd,
                                                     haplotypeIdentifier);
         FILE *outputPoaTsvFileHandle = fopen(outputPoaDotFilename, "w");
         poa_printDOT(poa, outputPoaTsvFileHandle, reads);
@@ -1126,7 +1126,7 @@ void poa_writeSupplementalChunkInformation2(char *outputBase, char *haplotypeIde
     }
     if (outputPoaCSV) {
         char *outputPoaCsvFilename = stString_print("%s.poa.C%05"PRId64".%s-%"PRId64"-%"PRId64"%s.csv",
-                                                    outputBase, chunkIdx, bamChunk->refSeqName, bamChunk->chunkBoundaryStart, bamChunk->chunkBoundaryEnd,
+                                                    outputBase, chunkIdx, bamChunk->refSeqName, bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd,
                                                     haplotypeIdentifier);
         FILE *outputPoaCsvFileHandle = fopen(outputPoaCsvFilename, "w");
         poa_printCSV(poa, outputPoaCsvFileHandle, reads, params->polishParams->repeatSubMatrix, 5);
@@ -1135,7 +1135,7 @@ void poa_writeSupplementalChunkInformation2(char *outputBase, char *haplotypeIde
     }
     if (outputRepeatCounts) {
         char *outputRepeatCountFilename = stString_print("%s.repeatCount.C%05"PRId64".%s-%"PRId64"-%"PRId64"%s.csv",
-                                                         outputBase, chunkIdx, bamChunk->refSeqName, bamChunk->chunkBoundaryStart, bamChunk->chunkBoundaryEnd,
+                                                         outputBase, chunkIdx, bamChunk->refSeqName, bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd,
                                                          haplotypeIdentifier);
         FILE *outputRepeatCountFileHandle = fopen(outputRepeatCountFilename, "w");
         poa_printRepeatCountsCSV(poa, outputRepeatCountFileHandle, reads);
@@ -1163,13 +1163,13 @@ void poa_writeSupplementalChunkInformationDiploid(char *outputBase, int64_t chun
 
     if (outputHaplotypedReadIdCsv) {
         char *readIdsHap1Filename = stString_print("%s.readIds.C%05"PRId64".%s-%"PRId64"-%"PRId64".hap1.csv",
-                                                   outputBase, chunkIdx, bamChunk->refSeqName, bamChunk->chunkBoundaryStart, bamChunk->chunkBoundaryEnd);
+                                                   outputBase, chunkIdx, bamChunk->refSeqName, bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd);
         FILE *readIdsHap1File = fopen(readIdsHap1Filename, "w");
         stGenomeFragment_printPartitionAsCSV(genomeFragment, readIdsHap1File, params->phaseParams, TRUE, NULL);
         fclose(readIdsHap1File);
 
         char *readIdsHap2Filename = stString_print("%s.readIds.C%05"PRId64".%s-%"PRId64"-%"PRId64".hap2.csv",
-                                                   outputBase, chunkIdx, bamChunk->refSeqName, bamChunk->chunkBoundaryStart, bamChunk->chunkBoundaryEnd);
+                                                   outputBase, chunkIdx, bamChunk->refSeqName, bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd);
         FILE *readIdsHap2File = fopen(readIdsHap2Filename, "w");
         stGenomeFragment_printPartitionAsCSV(genomeFragment, readIdsHap2File, params->phaseParams, FALSE, NULL);
         fclose(readIdsHap2File);

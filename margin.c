@@ -211,8 +211,8 @@ int main(int argc, char *argv[]) {
         RleString *reference = bamChunk_getReferenceSubstring(bamChunk, referenceSequences, params);
 
         st_logInfo("> Going to process a chunk for reference sequence: %s, starting at: %i and ending at: %i\n",
-                   bamChunk->refSeqName, (int) bamChunk->chunkBoundaryStart,
-                   (int) bamChunk->chunkBoundaryEnd);
+                   bamChunk->refSeqName, (int) bamChunk->chunkOverlapStart,
+                   (int) bamChunk->chunkOverlapEnd);
 
         // Convert bam lines into corresponding reads and alignments
         st_logInfo("> Parsing input reads from file: %s\n", bamInFile);

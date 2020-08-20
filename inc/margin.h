@@ -1067,11 +1067,11 @@ typedef struct _bamChunker {
 typedef struct _bamChunk {
     char *refSeqName;          // name of contig
     int64_t chunkIdx;
-    int64_t chunkBoundaryStart;  // the first 'position' where we have an aligned read
+    int64_t chunkOverlapStart;  // the first 'position' where we have an aligned read
     int64_t chunkStart;        // the actual boundary of the chunk, calculations from chunkMarginStart to chunkStart
     //  should be used to initialize the probabilities at chunkStart
     int64_t chunkEnd;          // same for chunk end
-    int64_t chunkBoundaryEnd;    // no reads should start after this position
+    int64_t chunkOverlapEnd;    // no reads should start after this position
     int64_t estimatedDepth;		// for ranking chunk order
     BamChunker *parent;        // reference to parent (may not be needed)
 } BamChunk;
@@ -1370,7 +1370,6 @@ void chunkToStitch_destruct(ChunkToStitch *chunkToStitch);
  * Stitching code
  */
 
-
 OutputChunkers *
 outputChunkers_construct(int64_t noOfOutputChunkers, Params *params, char *outputSequenceFile, char *outputPoaFile,
 						 char *outputReadPartitionFile, char *outputRepeatCountFile, char *hap1Suffix, char *hap2Suffix,
@@ -1446,6 +1445,22 @@ void removeReadsOnlyInChunkBoundary(BamChunk *bamChunk, stList *reads, stList *a
 stList *produceVcfEntriesFromBubbleGraph(BamChunk *bamChunk, BubbleGraph *bg, stHash *readsToPSeqs,
 										 stGenomeFragment *gF, double strandSkewThreshold,
 										 double readSkewThreshold);
+
+#define CHUNK_TRUTH_READ_ID "CTRID"
+#define CHUNK_TRUTH_READ_ID_LEN 5
+#define CHUNK_TRUTH_READ_ID_SEP "."
+typedef struct _chunkTruthHaplotypes ChunkTruthHaplotypes;
+struct _chunkTruthHaplotypes {
+    int64_t chunkIdx;
+    stList *hap1Reads;
+    stList *hap2Reads;
+};
+ChunkTruthHaplotypes **chunkTruthHaplotypes_construct(int64_t length);
+void chunkTruthHaplotypes_destruct(ChunkTruthHaplotypes **chunkTruthHaplotypes, int64_t length);
+void *chunkTruthHaplotypes_print(stList *readsInHap1, stList *readsInHap2, stList *bamChunks, int64_t length, char *filename);
+void chunkTruthHaplotypes_addTruthReadsToFilteredReadSet(BamChunk *bamChunk, BamChunker *bamChunker,
+        stList *readsToAdd, stList *alignmentsToAdd, RleString *rleReference, Params *params, char *logIdentifier);
+
 /*
  * HELEN Features
  */

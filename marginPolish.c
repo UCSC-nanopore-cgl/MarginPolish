@@ -70,8 +70,6 @@ void usage() {
     fprintf(stderr, "\nMiscellaneous supplementary output options:\n");
     fprintf(stderr, "    -c --supplementaryChunks : Write supplementary files for each chunk (in additon to writing\n");
     fprintf(stderr, "                               whole genome information)\n");
-    fprintf(stderr, "    -C --supplementaryChunksOnly : Only write supplementary files for each chunk (will not write\n");
-    fprintf(stderr, "                               whole genome information)\n");
     fprintf(stderr, "    -d --outputPoaDot        : Write out the poa as DOT file (only done per chunk)\n");
     fprintf(stderr, "    -i --outputRepeatCounts  : Write out the repeat counts as CSV file\n");
     fprintf(stderr, "    -j --outputPoaCsv        : Write out the poa as CSV file\n");
@@ -112,9 +110,9 @@ int main(int argc, char *argv[]) {
     bool outputHaplotypeReads = FALSE;
     bool outputHaplotypeBAM = FALSE;
     bool writeChunkSupplementaryOutput = FALSE;
-    bool writeChunkSupplementaryOutputOnly = FALSE;
     bool partitionFilteredReads = TRUE;
     bool outputPhasingState = FALSE;
+    bool partitionTruthSequences = FALSE;
 
     if (argc < 4) {
         free(outputBase);
@@ -157,7 +155,7 @@ int main(int argc, char *argv[]) {
                 { 0, 0, 0, 0 } };
 
         int option_index = 0;
-        int key = getopt_long(argc-2, &argv[2], "ha:o:v:p:2v:t:r:fF:u:L:cCijdmnkSs", long_options, &option_index);
+        int key = getopt_long(argc-2, &argv[2], "ha:o:v:p:2v:t:r:fF:u:L:cijdmnkSs", long_options, &option_index);
 
         if (key == -1) {
             break;
@@ -231,9 +229,6 @@ int main(int argc, char *argv[]) {
             break;
         case 'c':
             writeChunkSupplementaryOutput = TRUE;
-            break;
-        case 'C':
-            writeChunkSupplementaryOutputOnly = TRUE;
             break;
         case 'i':
             outputRepeatCounts = TRUE;
@@ -386,11 +381,22 @@ int main(int argc, char *argv[]) {
     FILE *chunksOut = fopen(outputChunksFile, "w");
     for (int64_t i = 0; i < bamChunker->chunkCount; i++) {
         BamChunk *c = stList_get(bamChunker->chunks, i);
-        fprintf(chunksOut, "%s,%"PRId64",%"PRId64",%"PRId64",%"PRId64"\n", c->refSeqName, c->chunkBoundaryStart,
-                c->chunkBoundaryEnd, c->chunkStart, c->chunkEnd);
+        fprintf(chunksOut, "%s,%"PRId64",%"PRId64",%"PRId64",%"PRId64"\n", c->refSeqName, c->chunkOverlapStart,
+                c->chunkOverlapEnd, c->chunkStart, c->chunkEnd);
     }
     fclose(chunksOut);
     free(outputChunksFile);
+
+    // if we're tracking chunk haplotypes
+    ChunkTruthHaplotypes **chunkTruthHaplotypesArray = NULL;
+    BamChunker *truthHaplotypesBamChunker = NULL;
+    if (diploid && trueReferenceBam != NULL) {
+        partitionTruthSequences = TRUE;
+        chunkTruthHaplotypesArray = chunkTruthHaplotypes_construct(bamChunker->chunkCount);
+        truthHaplotypesBamChunker = bamChunker_copyConstruct(bamChunker);
+        free(truthHaplotypesBamChunker->bamFile);
+        truthHaplotypesBamChunker->bamFile = stString_copy(trueReferenceBam);
+    }
 
     // for feature generation
     #ifdef _HDF5
@@ -407,9 +413,9 @@ int main(int argc, char *argv[]) {
 
     // output chunker tracks intermediate output files
     OutputChunkers *outputChunkers = outputChunkers_construct(numThreads, params, outputSequenceFile,
-            outputPoaCSV && !writeChunkSupplementaryOutputOnly ? outputPoaCsvFile : NULL,
-            outputHaplotypeReads && !writeChunkSupplementaryOutputOnly ? outputReadCsvFile : NULL,
-            outputRepeatCounts && !writeChunkSupplementaryOutputOnly ? outputRepeatCountFile : NULL,
+            outputPoaCSV ? outputPoaCsvFile : NULL,
+            outputHaplotypeReads ? outputReadCsvFile : NULL,
+            outputRepeatCounts ? outputRepeatCountFile : NULL,
             diploid ? ".hap1" : "", diploid ? ".hap2" : NULL, inMemory);
 
     // (may) need to shuffle chunks
@@ -480,15 +486,15 @@ int main(int argc, char *argv[]) {
                     bamChunk->refSeqName);
         }
         int64_t fullRefLen = strlen(fullReferenceString);
-        if (bamChunk->chunkBoundaryStart > fullRefLen) {
+        if (bamChunk->chunkOverlapStart > fullRefLen) {
             st_errAbort("ERROR: Reference sequence %s has length %"PRId64", chunk %"PRId64" has start position %"
                         PRId64". Perhaps the BAM and REF are mismatched?",
-                        bamChunk->refSeqName, fullRefLen, chunkIdx, bamChunk->chunkBoundaryStart);
+                        bamChunk->refSeqName, fullRefLen, chunkIdx, bamChunk->chunkOverlapStart);
         }
         RleString *rleReference = bamChunk_getReferenceSubstring(bamChunk, referenceSequences, params);
         st_logInfo(">%s Going to process a chunk (~%"PRId64"x) for reference sequence: %s, starting at: %i and ending at: %i\n",
-                   logIdentifier, bamChunk->estimatedDepth, bamChunk->refSeqName, (int) bamChunk->chunkBoundaryStart,
-                   (int) (fullRefLen < bamChunk->chunkBoundaryEnd ? fullRefLen : bamChunk->chunkBoundaryEnd));
+                   logIdentifier, bamChunk->estimatedDepth, bamChunk->refSeqName, (int) bamChunk->chunkOverlapStart,
+                   (int) (fullRefLen < bamChunk->chunkOverlapEnd ? fullRefLen : bamChunk->chunkOverlapEnd));
 
         // Convert bam lines into corresponding reads and alignments
         st_logInfo(" %s Parsing input reads from file: %s\n", logIdentifier, bamInFile);
@@ -573,7 +579,7 @@ int main(int argc, char *argv[]) {
         }
 
         // Write any optional outputs about repeat count and POA, etc.
-        if (writeChunkSupplementaryOutput || writeChunkSupplementaryOutputOnly) {
+        if (writeChunkSupplementaryOutput) {
             poa_writeSupplementalChunkInformation(outputBase, chunkIdx, bamChunk, poa, reads, params,
                                                   outputPoaDOT, outputPoaCSV, outputRepeatCounts);
         }
@@ -592,8 +598,8 @@ int main(int argc, char *argv[]) {
             stReference *ref = NULL;
             stList *chunkVcfEntries = NULL;
             if (vcfEntries != NULL) {
-                chunkVcfEntries = getVcfEntriesForRegion(vcfEntries, bamChunk->refSeqName, bamChunk->chunkBoundaryStart,
-                                                         bamChunk->chunkBoundaryEnd);
+                chunkVcfEntries = getVcfEntriesForRegion(vcfEntries, bamChunk->refSeqName, bamChunk->chunkOverlapStart,
+                                                         bamChunk->chunkOverlapEnd);
             }
             do {
                 // cleanup and iterate (if not first run through)
@@ -684,7 +690,7 @@ int main(int argc, char *argv[]) {
             if (outputPhasingState) {
                 // save info
                 chunkBubbleOutFilename = stString_print("%s.C%05"PRId64".%s-%"PRId64"-%"PRId64".phasingInfo.json",
-                                                        outputBase, chunkIdx,  bamChunk->refSeqName, bamChunk->chunkBoundaryStart, bamChunk->chunkBoundaryEnd);
+                                                        outputBase, chunkIdx,  bamChunk->refSeqName, bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd);
                 st_logInfo(" %s Saving chunk phasing info to: %s\n", logIdentifier, chunkBubbleOutFilename);
                 chunkBubbleOut = fopen(chunkBubbleOutFilename, "w");
                 fprintf(chunkBubbleOut, "{\n");
@@ -693,15 +699,21 @@ int main(int argc, char *argv[]) {
             }
 
             // should included filtered reads in output
-            if (partitionFilteredReads) {
-                // get filtered reads
-                for (int64_t bcrIdx = 0; bcrIdx < stList_length(reads); bcrIdx++) {
-                    BamChunkRead *bcr = stList_get(reads, bcrIdx);
-                    if (!stSet_search(readsBelongingToHap1, bcr) && !stSet_search(readsBelongingToHap2, bcr)) {
-                        // was filtered in some form
-                        stList_append(filteredReads, bamChunkRead_constructCopy(bcr));
-                        stList_append(filteredAlignments, copyListOfIntTuples(stList_get(alignments, bcrIdx)));
+            if (partitionFilteredReads || partitionTruthSequences) {
+                // get reads
+                if (partitionFilteredReads) {
+                    for (int64_t bcrIdx = 0; bcrIdx < stList_length(reads); bcrIdx++) {
+                        BamChunkRead *bcr = stList_get(reads, bcrIdx);
+                        if (!stSet_search(readsBelongingToHap1, bcr) && !stSet_search(readsBelongingToHap2, bcr)) {
+                            // was filtered in some form
+                            stList_append(filteredReads, bamChunkRead_constructCopy(bcr));
+                            stList_append(filteredAlignments, copyListOfIntTuples(stList_get(alignments, bcrIdx)));
+                        }
                     }
+                }
+                if (partitionTruthSequences) {
+                    chunkTruthHaplotypes_addTruthReadsToFilteredReadSet(bamChunk, truthHaplotypesBamChunker,
+                            filteredReads, filteredAlignments, rleReference, params, logIdentifier);
                 }
                 st_logInfo(" %s Assigning %"PRId64" filtered reads to haplotypes\n", logIdentifier, stList_length(filteredReads));
                 removeReadsOnlyInChunkBoundary(bamChunk, filteredReads, filteredAlignments, logIdentifier);
@@ -737,7 +749,7 @@ int main(int argc, char *argv[]) {
             char *polishedConsensusStringH2 = rleString_expand(polishedRleConsensusH2);
 
             //ancillary files
-            if (writeChunkSupplementaryOutput || writeChunkSupplementaryOutputOnly) {
+            if (writeChunkSupplementaryOutput) {
                 poa_writeSupplementalChunkInformationDiploid(outputBase, chunkIdx, bamChunk, gf, poa_hap1, poa_hap2,
                         reads, readsBelongingToHap1, readsBelongingToHap2, params, outputPoaDOT, outputPoaCSV,
                         outputRepeatCounts, outputHaplotypeReads, outputHaplotypeBAM, logIdentifier);
@@ -760,6 +772,7 @@ int main(int argc, char *argv[]) {
             // Cleanup
             free(hap1);
             free(hap2);
+            if (chunkVcfEntries != NULL) stList_destruct(chunkVcfEntries);
             stSet_destruct(readsBelongingToHap1);
             stSet_destruct(readsBelongingToHap2);
             rleString_destruct(polishedRleConsensusH1);
@@ -786,7 +799,7 @@ int main(int argc, char *argv[]) {
 
 
             //ancillary files
-            if (writeChunkSupplementaryOutput || writeChunkSupplementaryOutputOnly) {
+            if (writeChunkSupplementaryOutput) {
                 poa_writeSupplementalChunkInformation(outputBase, chunkIdx, bamChunk, poa, reads, params,
                         outputPoaDOT, outputPoaCSV, outputRepeatCounts);
             }
@@ -827,22 +840,17 @@ int main(int argc, char *argv[]) {
     // for writing haplotyped chunks
     stList *allReadIdsHap1 = NULL;
     stList *allReadIdsHap2 = NULL;
-    if (outputHaplotypeBAM && !writeChunkSupplementaryOutputOnly) {
+    if (partitionTruthSequences || outputHaplotypeBAM) {
         // setup
-        allReadIdsHap1 = stList_construct();
-        allReadIdsHap2 = stList_construct();
+        allReadIdsHap1 = stList_construct3(0, free);
+        allReadIdsHap2 = stList_construct3(0, free);
     }
 
     // merge chunks
     time_t mergeStartTime = time(NULL);
-    if (params->polishParams->shuffleChunks || inMemory) {
-        st_logCritical("> Starting merge\n");
-        outputChunkers_stitchAndTrackReadIds(outputChunkers, diploid, bamChunker->chunkCount,
-                allReadIdsHap1, allReadIdsHap2);
-    } else {
-        st_logCritical("> Starting linear merge\n");
-        outputChunkers_stitchLinear(outputChunkers, diploid);
-    }
+    st_logCritical("> Starting merge\n");
+    outputChunkers_stitchAndTrackReadIds(outputChunkers, diploid, bamChunker->chunkCount,
+            allReadIdsHap1, allReadIdsHap2);
     time_t mergeEndTime = time(NULL);
     char *tds = getTimeDescriptorFromSeconds((int) mergeEndTime - mergeStartTime);
     st_logCritical("> Merging took %s\n", tds);
@@ -853,12 +861,12 @@ int main(int argc, char *argv[]) {
     free(tds);
 
     // maybe write final haplotyped bams
-    if (allReadIdsHap1 != NULL && allReadIdsHap2 != NULL) {
+    if (outputHaplotypeBAM) {
         time_t hapBamStart = time(NULL);
         st_logInfo("> Writing final haplotyped BAMs\n");
 
-        stSet *allReadIdsForHaplotypingHap1 = stSet_construct3(stHash_stringKey, stHash_stringEqualKey, free);
-        stSet *allReadIdsForHaplotypingHap2 = stSet_construct3(stHash_stringKey, stHash_stringEqualKey, free);
+        stSet *allReadIdsForHaplotypingHap1 = stSet_construct3(stHash_stringKey, stHash_stringEqualKey, NULL);
+        stSet *allReadIdsForHaplotypingHap2 = stSet_construct3(stHash_stringKey, stHash_stringEqualKey, NULL);
 
         for(int64_t i = 0; i < stList_length(allReadIdsHap1); i++) {
             stSet_insert(allReadIdsForHaplotypingHap1, stList_get(allReadIdsHap1, i));
@@ -889,12 +897,21 @@ int main(int argc, char *argv[]) {
         // cleanup
         stSet_destruct(allReadIdsForHaplotypingHap1);
         stSet_destruct(allReadIdsForHaplotypingHap2);
-        stList_destruct(allReadIdsHap1);
-        stList_destruct(allReadIdsHap2);
         free(hapBamTDS);
     }
 
+    if (diploid && partitionTruthSequences) {
+        char *chunkTruthHaplotypesPartitionFile = stString_print("%s.truthHaplotypesPartition.tsv", outputBase);
+        chunkTruthHaplotypes_print(allReadIdsHap1, allReadIdsHap2, bamChunker->chunks, bamChunker->chunkCount,
+                chunkTruthHaplotypesPartitionFile);
+        free(chunkTruthHaplotypesPartitionFile);
+    }
+
     // Cleanup
+    if (partitionTruthSequences) {
+        chunkTruthHaplotypes_destruct(chunkTruthHaplotypesArray, bamChunker->chunkCount);
+        bamChunker_destruct(truthHaplotypesBamChunker);
+    }
     bamChunker_destruct(bamChunker);
     stHash_destruct(referenceSequences);
     params_destruct(params);
@@ -917,6 +934,8 @@ int main(int argc, char *argv[]) {
         free(vcfFile);
         stList_destruct(vcfEntries);
     }
+    if (allReadIdsHap1 != NULL) stList_destruct(allReadIdsHap1);
+    if (allReadIdsHap2 != NULL) stList_destruct(allReadIdsHap2);
     free(outputBase);
     free(bamInFile);
     free(referenceFastaFile);

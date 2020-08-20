@@ -274,8 +274,8 @@ int main(int argc, char *argv[]) {
     FILE *chunksOut = fopen(outputChunksFile, "w");
     for (int64_t i = 0; i < bamChunker->chunkCount; i++) {
         BamChunk *c = stList_get(bamChunker->chunks, i);
-        fprintf(chunksOut, "%s,%"PRId64",%"PRId64",%"PRId64",%"PRId64"\n", c->refSeqName, c->chunkBoundaryStart,
-                c->chunkBoundaryEnd, c->chunkStart, c->chunkEnd);
+        fprintf(chunksOut, "%s,%"PRId64",%"PRId64",%"PRId64",%"PRId64"\n", c->refSeqName, c->chunkOverlapStart,
+                c->chunkOverlapEnd, c->chunkStart, c->chunkEnd);
     }
     fclose(chunksOut);
     free(outputChunksFile);
@@ -361,15 +361,15 @@ int main(int argc, char *argv[]) {
                     bamChunk->refSeqName);
         }
         int64_t fullRefLen = strlen(fullReferenceString);
-        if (bamChunk->chunkBoundaryStart > fullRefLen) {
+        if (bamChunk->chunkOverlapStart > fullRefLen) {
             st_errAbort("ERROR: Reference sequence %s has length %"PRId64", chunk %"PRId64" has start position %"
                         PRId64". Perhaps the BAM and REF are mismatched?",
-                        bamChunk->refSeqName, fullRefLen, chunkIdx, bamChunk->chunkBoundaryStart);
+                        bamChunk->refSeqName, fullRefLen, chunkIdx, bamChunk->chunkOverlapStart);
         }
         RleString *rleReference = bamChunk_getReferenceSubstring(bamChunk, referenceSequences, params);
         st_logInfo(">%s Going to process a chunk (~%"PRId64"x) for reference sequence: %s, starting at: %i and ending at: %i\n",
-                   logIdentifier, bamChunk->estimatedDepth, bamChunk->refSeqName, (int) bamChunk->chunkBoundaryStart,
-                   (int) (fullRefLen < bamChunk->chunkBoundaryEnd ? fullRefLen : bamChunk->chunkBoundaryEnd));
+                   logIdentifier, bamChunk->estimatedDepth, bamChunk->refSeqName, (int) bamChunk->chunkOverlapStart,
+                   (int) (fullRefLen < bamChunk->chunkOverlapEnd ? fullRefLen : bamChunk->chunkOverlapEnd));
         uint64_t *reference_rleToNonRleCoordMap = rleString_getRleToNonRleCoordinateMap(rleReference);
 
         // Convert bam lines into corresponding reads and alignments
@@ -382,8 +382,8 @@ int main(int argc, char *argv[]) {
                 filteredAlignments, params->polishParams);
 
         // Get variants for chunk
-        stList *chunkVcfEntries = getVcfEntriesForRegion(vcfEntries, bamChunk->refSeqName, bamChunk->chunkBoundaryStart,
-                                                         bamChunk->chunkBoundaryEnd);
+        stList *chunkVcfEntries = getVcfEntriesForRegion(vcfEntries, bamChunk->refSeqName, bamChunk->chunkOverlapStart,
+                                                         bamChunk->chunkOverlapEnd);
         if (params->polishParams->useRunLengthEncoding) {
             uint64_t *rleMap = rleString_getNonRleToRleCoordinateMap(rleReference);
             for (int v = 0; v<stList_length(chunkVcfEntries); v++) {
@@ -558,7 +558,7 @@ int main(int argc, char *argv[]) {
         if (outputPhasingState) {
             // save info
             chunkBubbleOutFilename = stString_print("%s.C%05"PRId64".%s-%"PRId64"-%"PRId64".phasingInfo.json",
-                    outputBase, chunkIdx,  bamChunk->refSeqName, bamChunk->chunkBoundaryStart, bamChunk->chunkBoundaryEnd);
+                    outputBase, chunkIdx,  bamChunk->refSeqName, bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd);
             st_logInfo(" %s Saving chunk phasing info to: %s\n", logIdentifier, chunkBubbleOutFilename);
             chunkBubbleOut = fopen(chunkBubbleOutFilename, "w");
             fprintf(chunkBubbleOut, "{\n");
