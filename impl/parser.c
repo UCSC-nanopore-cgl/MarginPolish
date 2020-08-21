@@ -66,8 +66,6 @@ void stRPHmmParameters_parseParametersFromJson(stRPHmmParameters *params, char *
     char *js;
     int64_t tokenNumber = stJson_setupParser(buf, r, &tokens, &js);
 
-    //TODO: refactor the following to use the json parsing functions
-
     // Parse tokens, starting at token 1
     // (token 0 is entire object)
     for (int64_t i = 1; i < tokenNumber; i++) {
@@ -88,12 +86,6 @@ void stRPHmmParameters_parseParametersFromJson(stRPHmmParameters *params, char *
             params->minReadCoverageToSupportPhasingBetweenHeterozygousSites = stJson_parseInt(js, tokens, ++i);
         } else if (strcmp(keyString, "includeInvertedPartitions") == 0) {
             params->includeInvertedPartitions = stJson_parseBool(js, tokens, ++i);
-        } else if (strcmp(keyString, "verbose") == 0) {
-            jsmntok_t tok = tokens[i + 1];
-            char *tokStr = stJson_token_tostr(js, &tok);
-            int64_t bitString = atoi(tokStr);
-            // TODO - currently does nothing
-            i++;
         } else if (strcmp(keyString, "roundsOfIterativeRefinement") == 0) {
             params->roundsOfIterativeRefinement = stJson_parseInt(js, tokens, ++i);
         } else if (strcmp(keyString, "minPhredScoreForHaplotypePartition") == 0) {

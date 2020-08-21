@@ -651,7 +651,6 @@ void getAlignedPairsWithIndelsCroppingReference(RleString *reference,
     getAlignedPairsWithIndelsUsingAnchors(readStrand ? polishParams->stateMachineForForwardStrandRead :
                                           polishParams->stateMachineForReverseStrandRead, sX, sY,
                                           anchorPairs, polishParams->p, matches, deletes, inserts, 0, 0);
-    //TODO are the delete and insert lists inverted here?
 
     // Cleanup symbol strings
     symbolString_destruct(sX);

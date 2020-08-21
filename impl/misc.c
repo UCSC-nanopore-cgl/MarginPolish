@@ -128,12 +128,6 @@ stList *copyListOfIntTuples(stList *toCopy) {
         int64_t n = stIntTuple_length(tupleFrom);
         stIntTuple *tupleTo = stIntTuple_constructN(n, &(tupleFrom[1]));
         stList_append(copy, tupleTo);
-
-        //todo delete
-        assert(stIntTuple_length(tupleTo) == n);
-        for (int64_t k = 0; k < n; k++) {
-            assert(stIntTuple_get(tupleFrom, k) == stIntTuple_get(tupleTo, k));
-        }
     }
     return copy;
 }

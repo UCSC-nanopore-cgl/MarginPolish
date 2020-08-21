@@ -1156,7 +1156,6 @@ BubbleGraph *bubbleGraph_partitionFilteredReads(Poa *poa, stList *bamChunkReads,
                 params, FALSE);
 
         // Get existing reference string
-        //todo remove this?
         RleString *existingRefSubstring = rleString_copySubstring(poa->refString, refStart, primaryBubble->bubbleLength);
         assert(existingRefSubstring->length == primaryBubble->bubbleLength);
         char *expandedExistingRefSubstring = rleString_expand(existingRefSubstring);
