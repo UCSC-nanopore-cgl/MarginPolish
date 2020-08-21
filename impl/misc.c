@@ -424,11 +424,19 @@ void chunkTruthHaplotypes_addTruthReadsToFilteredReadSet(BamChunk *bamChunk, Bam
     stList *alignments = stList_construct();
     BamChunker *tmp = bamChunk->parent;
     bamChunk->parent = bamChunker;
-    convertToReadsAndAlignments(bamChunk, rleReference, reads, alignments, params->polishParams);
+
+    // we want supplementary truth aligments
+    PolishParams paramsCopy;
+    memcpy(&paramsCopy, params->polishParams, sizeof(PolishParams));
+    paramsCopy.includeSupplementaryAlignments = TRUE;
+
+    // get truth "reads"
+    convertToReadsAndAlignments(bamChunk, rleReference, reads, alignments, &paramsCopy);
     bamChunk->parent = tmp;
     st_logInfo(" %s Saving %"PRId64" truth reads from file: %s\n", logIdentifier, stList_length(reads),
                bamChunker->bamFile);
 
+    // rename reads for later retrieval
     for (int64_t i = 0; i < stList_length(reads); i++) {
         BamChunkRead *bcr = stList_get(reads, i);
 
