@@ -468,13 +468,13 @@ uint32_t convertToReadsAndAlignmentsWithFiltered(BamChunk *bamChunk, RleString *
         if (aln->core.n_cigar == 0) continue;
         if ((aln->core.flag & (uint16_t) 0x4) != 0)
             continue; //unaligned
-        if (!bamChunk->parent->params->includeSecondaryAlignments && (aln->core.flag & (uint16_t) 0x100) != 0)
+        if (!polishParams->includeSecondaryAlignments && (aln->core.flag & (uint16_t) 0x100) != 0)
             continue; //secondary
-        if (!bamChunk->parent->params->includeSupplementaryAlignments && (aln->core.flag & (uint16_t) 0x800) != 0)
+        if (!polishParams->includeSupplementaryAlignments && (aln->core.flag & (uint16_t) 0x800) != 0)
             continue; //supplementary
         if (st_random() > randomDiscardChance)
             continue; // chunk is too deep
-        if (aln->core.qual < bamChunk->parent->params->filterAlignmentsWithMapQBelowThisThreshold) { //low mapping quality
+        if (aln->core.qual < polishParams->filterAlignmentsWithMapQBelowThisThreshold) { //low mapping quality
             if (filteredReads == NULL) continue;
             filtered = TRUE;
         }
@@ -684,11 +684,11 @@ uint32_t convertToReadsAndAlignmentsWithFiltered(BamChunk *bamChunk, RleString *
         // save to read
         bool forwardStrand = !bam_is_rev(aln);
         BamChunkRead *chunkRead = bamChunkRead_construct3(readName, seq, qual, forwardStrand, aln->l_data,
-                                                          bamChunk->parent->params->useRunLengthEncoding);
+                                                          polishParams->useRunLengthEncoding);
         stList_append(filtered ? filteredReads: reads, chunkRead);
 
         // save alignment
-        if (bamChunk->parent->params->useRunLengthEncoding) {
+        if (polishParams->useRunLengthEncoding) {
             // ref_nonRleToRleCoordinateMap should only be null w/ RLE in tests
             if (ref_nonRleToRleCoordinateMap != NULL) {
                 // rle the alignment and save it

@@ -892,7 +892,7 @@ int main(int argc, char *argv[]) {
         }
 
         char *hapBamTDS = getTimeDescriptorFromSeconds(time(NULL) - hapBamStart);
-        st_logInfo("> Wrote haplotyped bams in %s\n", hapBamTDS);
+        st_logCritical("> Wrote haplotyped bams in %s\n", hapBamTDS);
 
         // cleanup
         stSet_destruct(allReadIdsForHaplotypingHap1);
@@ -902,6 +902,7 @@ int main(int argc, char *argv[]) {
 
     if (diploid && partitionTruthSequences) {
         char *chunkTruthHaplotypesPartitionFile = stString_print("%s.truthHaplotypesPartition.tsv", outputBase);
+        st_logCritical("> Writing truth haplotype partitioning to %s\n", chunkTruthHaplotypesPartitionFile);
         chunkTruthHaplotypes_print(allReadIdsHap1, allReadIdsHap2, bamChunker->chunks, bamChunker->chunkCount,
                 chunkTruthHaplotypesPartitionFile);
         free(chunkTruthHaplotypesPartitionFile);

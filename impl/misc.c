@@ -363,7 +363,6 @@ void *chunkTruthHaplotypes_print(stList *readsInHap1, stList *readsInHap2, stLis
     ChunkTruthHaplotypes **cths = chunkTruthHaplotypes_construct(length);
 
     // get reads
-    #pragma omp parallel for schedule(static,1)
     for (int hap = 1; hap <= 2; hap++) {
         stList *readNames = hap == 1 ? readsInHap1 : readsInHap2;
         stListIterator *itor = stList_getIterator(readNames);
