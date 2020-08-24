@@ -739,6 +739,50 @@ int main(int argc, char *argv[]) {
             }
 
 
+            if (TRUE) {
+                // reads and alignment lists
+                stList *readsHap1 = stList_construct();
+                stList *alignmentsHap1 = stList_construct();
+                stList *readsHap2 = stList_construct();
+                stList *alignmentsHap2 = stList_construct();
+
+                // get filtered reads and alignments
+                for (int64_t r = 0; r < stList_length(reads); r++) {
+                    if (stSet_search(readsBelongingToHap1, stList_get(reads, r))) {
+                        stList_append(readsHap1, stList_get(reads, r));
+                        stList_append(alignmentsHap1, stList_get(alignments, r));
+                    } else if (stSet_search(readsBelongingToHap2, stList_get(reads, r))) {
+                        stList_append(readsHap2, stList_get(reads, r));
+                        stList_append(alignmentsHap2, stList_get(alignments, r));
+                    }
+                }
+                for (int64_t r = 0; r < stList_length(filteredReads); r++) {
+                    if (stSet_search(readsBelongingToHap1, stList_get(filteredReads, r))) {
+                        stList_append(readsHap1, stList_get(filteredReads, r));
+                        stList_append(alignmentsHap1, stList_get(filteredAlignments, r));
+                    } else if (stSet_search(readsBelongingToHap2, stList_get(filteredReads, r))) {
+                        stList_append(readsHap2, stList_get(filteredReads, r));
+                        stList_append(alignmentsHap2, stList_get(filteredAlignments, r));
+                    }
+                }
+
+                st_logInfo(" %s Regenerating POAs with %"PRId64" H1 reads and %"PRId64" H2 reads\n", logIdentifier,
+                        stList_length(readsHap1), stList_length(readsHap2));
+
+                // do "haploid" alignment
+                Poa *poaDiploidHaploidH1 = poa_realignAll(readsHap1, alignmentsHap1, rleReference, params->polishParams);
+                Poa *poaDiploidHaploidH2 = poa_realignAll(readsHap2, alignmentsHap2, rleReference, params->polishParams);
+                poa_estimateRepeatCountsUsingBayesianModel(poaDiploidHaploidH1, readsHap1, params->polishParams->repeatSubMatrix);
+                poa_estimateRepeatCountsUsingBayesianModel(poaDiploidHaploidH2, readsHap2, params->polishParams->repeatSubMatrix);
+
+                // out with the old, in with the new
+                poa_destruct(poa_hap1);
+                poa_destruct(poa_hap2);
+                poa_hap1 = poaDiploidHaploidH1;
+                poa_hap2 = poaDiploidHaploidH2;
+            }
+
+
             // Output
             outputChunkers_processChunkSequencePhased(outputChunkers, threadIdx, chunkIdx, bamChunk->refSeqName,
                                                       poa_hap1, poa_hap2, reads,
