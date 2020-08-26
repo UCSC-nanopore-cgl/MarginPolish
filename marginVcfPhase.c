@@ -382,16 +382,11 @@ int main(int argc, char *argv[]) {
                 filteredAlignments, params->polishParams);
 
         // Get variants for chunk
-        stList *chunkVcfEntries = getVcfEntriesForRegion(vcfEntries, bamChunk->refSeqName, bamChunk->chunkOverlapStart,
-                                                         bamChunk->chunkOverlapEnd);
-        if (params->polishParams->useRunLengthEncoding) {
-            uint64_t *rleMap = rleString_getNonRleToRleCoordinateMap(rleReference);
-            for (int v = 0; v<stList_length(chunkVcfEntries); v++) {
-                VcfEntry *vcfEntry = stList_get(chunkVcfEntries, v);
-                vcfEntry->refPos = rleMap[vcfEntry->refPos];
-            }
-            free(rleMap);
-        }
+        uint64_t *rleMap = params->polishParams->useRunLengthEncoding ?
+                rleString_getNonRleToRleCoordinateMap(rleReference) : NULL;
+        stList *chunkVcfEntries = getVcfEntriesForRegion(vcfEntries, rleMap, bamChunk->refSeqName,
+                bamChunk->chunkOverlapStart,  bamChunk->chunkOverlapEnd);
+        if (rleMap != NULL) free(rleMap);
 
         // do downsampling if appropriate
         if (params->phaseParams->maxCoverageDepth > 0) {

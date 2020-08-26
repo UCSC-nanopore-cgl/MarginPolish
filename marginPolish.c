@@ -598,8 +598,11 @@ int main(int argc, char *argv[]) {
             stReference *ref = NULL;
             stList *chunkVcfEntries = NULL;
             if (vcfEntries != NULL) {
-                chunkVcfEntries = getVcfEntriesForRegion(vcfEntries, bamChunk->refSeqName, bamChunk->chunkOverlapStart,
-                                                         bamChunk->chunkOverlapEnd);
+                uint64_t *rleMap = params->polishParams->useRunLengthEncoding ?
+                                   rleString_getNonRleToRleCoordinateMap(rleReference) : NULL;
+                chunkVcfEntries = getVcfEntriesForRegion(vcfEntries, rleMap, bamChunk->refSeqName,
+                        bamChunk->chunkOverlapStart,  bamChunk->chunkOverlapEnd);
+                if (rleMap != NULL) free(rleMap);
             }
             do {
                 // cleanup and iterate (if not first run through)

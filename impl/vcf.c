@@ -147,7 +147,7 @@ stList *parseVcf(char *vcfFile, PolishParams *params) {
     return parseVcf2(vcfFile, FALSE, params);
 }
 
-stList *getVcfEntriesForRegion2(stList *vcfEntries, char *refSeqName, int64_t startPos, int64_t endPos, double minQual) {
+stList *getVcfEntriesForRegion2(stList *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos, double minQual) {
     stList *regionEntries = stList_construct3(0, (void(*)(void*))vcfEntry_destruct);
     int64_t qualityFilteredCount = 0;
     for (int64_t i = 0; i < stList_length(vcfEntries); i++) {
@@ -159,7 +159,11 @@ stList *getVcfEntriesForRegion2(stList *vcfEntries, char *refSeqName, int64_t st
             qualityFilteredCount++;
             continue;
         }
-        VcfEntry *copy = vcfEntry_construct(e->refSeqName, e->refPos - startPos, e->rawRefPosInformativeOnly, e->phredQuality,
+        int64_t refPos = e->refPos - startPos;
+        if (rleMap != NULL) {
+            refPos = rleMap[refPos];
+        }
+        VcfEntry *copy = vcfEntry_construct(e->refSeqName, refPos, e->rawRefPosInformativeOnly, e->phredQuality,
                 rleString_copy(e->allele1), rleString_copy(e->allele2));
         stList_append(regionEntries, copy);
     }
@@ -173,6 +177,6 @@ stList *getVcfEntriesForRegion2(stList *vcfEntries, char *refSeqName, int64_t st
 }
 
 
-stList *getVcfEntriesForRegion(stList *vcfEntries, char *refSeqName, int64_t startPos, int64_t endPos) {
-    return getVcfEntriesForRegion2(vcfEntries, refSeqName, startPos, endPos, DEFAULT_MIN_VCF_QUAL);
+stList *getVcfEntriesForRegion(stList *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos) {
+    return getVcfEntriesForRegion2(vcfEntries, rleMap, refSeqName, startPos, endPos, DEFAULT_MIN_VCF_QUAL);
 }
