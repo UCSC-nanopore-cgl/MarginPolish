@@ -78,6 +78,7 @@
 		  "includeInvertedPartitions" : true,
 		  "roundsOfIterativeRefinement": 10,
           "minPhredScoreForHaplotypePartition": 10,
+          "includeHomozygousVCFEntries": false,
           "bubbleFindingIterations": 1,
           "bubbleMinBinomialStrandLikelihood": 0.1,
           "bubbleMinBinomialReadSplitLikelihood": 0.1

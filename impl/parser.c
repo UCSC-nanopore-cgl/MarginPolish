@@ -31,6 +31,7 @@ stRPHmmParameters *stRPHmmParameters_construct() {
     params->minPhredScoreForHaplotypePartition = 0;
 
     // bubble parameters
+    params->includeHomozygousVCFEntries = FALSE;
     params->bubbleFindingIterations = 1;
     params->bubbleMinBinomialStrandLikelihood = .05;
     params->bubbleMinBinomialReadSplitLikelihood = .05;
@@ -56,6 +57,12 @@ stRPHmmParameters *stRPHmmParameters_copy(stRPHmmParameters *toCopy) {
     params->includeInvertedPartitions = toCopy->includeInvertedPartitions;
     params->includeAncestorSubProb = toCopy->includeAncestorSubProb;
     params->minPhredScoreForHaplotypePartition = toCopy->minPhredScoreForHaplotypePartition;
+
+    // bubble parameters
+    params->includeHomozygousVCFEntries = toCopy->includeHomozygousVCFEntries;
+    params->bubbleFindingIterations = toCopy->bubbleFindingIterations;
+    params->bubbleMinBinomialStrandLikelihood = toCopy->bubbleMinBinomialStrandLikelihood;
+    params->bubbleMinBinomialReadSplitLikelihood = toCopy->bubbleMinBinomialReadSplitLikelihood;
 
     return params;
 }
@@ -90,6 +97,8 @@ void stRPHmmParameters_parseParametersFromJson(stRPHmmParameters *params, char *
             params->roundsOfIterativeRefinement = stJson_parseInt(js, tokens, ++i);
         } else if (strcmp(keyString, "minPhredScoreForHaplotypePartition") == 0) {
             params->minPhredScoreForHaplotypePartition = stJson_parseInt(js, tokens, ++i);
+        } else if (strcmp(keyString, "includeHomozygousVCFEntries") == 0) {
+            params->includeHomozygousVCFEntries = stJson_parseBool(js, tokens, ++i);
         } else if (strcmp(keyString, "bubbleFindingIterations") == 0) {
             params->bubbleFindingIterations = stJson_parseInt(js, tokens, ++i);
         } else if (strcmp(keyString, "bubbleMinBinomialStrandLikelihood") == 0) {

@@ -257,7 +257,7 @@ int main(int argc, char *argv[]) {
     stHash *referenceSequences = parseReferenceSequences(referenceFastaFile);
 
     // get VCF entries
-    stList *vcfEntries = parseVcf2(vcfFile, TRUE, params->polishParams);
+    stList *vcfEntries = parseVcf(vcfFile, params);
 
     // get chunker for bam.  if regionStr is NULL, it will be ignored
     BamChunker *bamChunker = bamChunker_construct2(bamInFile, regionStr, params->polishParams);

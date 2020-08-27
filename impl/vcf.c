@@ -27,7 +27,7 @@ void vcfEntry_destruct(VcfEntry *vcfEntry) {
 #define  Q_WEIGHT .2
 #define DEFAULT_MIN_VCF_QUAL -1
 
-stList *parseVcf2(char *vcfFile, bool hetOnly, PolishParams *params) {
+stList *parseVcf(char *vcfFile, Params *params) {
     stList *entries = stList_construct3(0, (void(*)(void*))vcfEntry_destruct);
     FILE *fp = fopen(vcfFile, "r");
     if (fp == NULL) {
@@ -118,11 +118,11 @@ stList *parseVcf2(char *vcfFile, bool hetOnly, PolishParams *params) {
         int64_t pos = atol(stList_get(elements, 1));
 
         // save it
-        if (gt1 != gt2 || !hetOnly) {
-            RleString *rleAllele1 = params->useRunLengthEncoding ? rleString_construct(allele1)
-                                                                 : rleString_construct_no_rle(allele1);
-            RleString *rleAllele2 = params->useRunLengthEncoding ? rleString_construct(allele2)
-                                                                 : rleString_construct_no_rle(allele2);
+        if (gt1 != gt2 || params->phaseParams->includeHomozygousVCFEntries) {
+            RleString *rleAllele1 = params->polishParams->useRunLengthEncoding ? rleString_construct(allele1)
+                    : rleString_construct_no_rle(allele1);
+            RleString *rleAllele2 = params->polishParams->useRunLengthEncoding ? rleString_construct(allele2)
+                    : rleString_construct_no_rle(allele2);
             VcfEntry *entry = vcfEntry_construct(chrom, pos, pos, variantQuality, rleAllele1, rleAllele2);
             stList_append(entries, entry);
         }
@@ -140,11 +140,9 @@ stList *parseVcf2(char *vcfFile, bool hetOnly, PolishParams *params) {
     // cleanup
     fclose(fp);
 
-    st_logCritical("> Parsed %"PRId64" %sVCF entries from %s\n", stList_length(entries), hetOnly?"HET ":"", vcfFile);
+    st_logCritical("> Parsed %"PRId64" %sVCF entries from %s\n", stList_length(entries),
+            params->phaseParams->includeHomozygousVCFEntries ? " " : "HET ", vcfFile);
     return entries;
-}
-stList *parseVcf(char *vcfFile, PolishParams *params) {
-    return parseVcf2(vcfFile, FALSE, params);
 }
 
 stList *getVcfEntriesForRegion2(stList *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos, double minQual) {
