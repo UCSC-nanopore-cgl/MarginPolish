@@ -191,7 +191,7 @@ int main(int argc, char *argv[]) {
                                                               inMemoryBuffers);
 
     // if regionStr is NULL, it will be ignored in construct2
-    BamChunker *bamChunker = bamChunker_construct2(bamInFile, regionStr, params->polishParams);
+    BamChunker *bamChunker = bamChunker_construct2(bamInFile, regionStr, params->polishParams, true);
     st_logInfo("> Set up bam chunker with chunk size: %i and overlap %i (for region=%s)\n",
                (int) bamChunker->chunkSize, (int) bamChunker->chunkBoundary, regionStr == NULL ? "all" : regionStr);
 

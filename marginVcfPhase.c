@@ -260,7 +260,7 @@ int main(int argc, char *argv[]) {
     stList *vcfEntries = parseVcf(vcfFile, params);
 
     // get chunker for bam.  if regionStr is NULL, it will be ignored
-    BamChunker *bamChunker = bamChunker_construct2(bamInFile, regionStr, params->polishParams);
+    BamChunker *bamChunker = bamChunker_construct2(bamInFile, regionStr, params->polishParams, true);
     st_logCritical(
             "> Set up bam chunker with chunk size %i and overlap %i (for region=%s), resulting in %i total chunks\n",
             (int) bamChunker->chunkSize, (int) bamChunker->chunkBoundary, regionStr == NULL ? "all" : regionStr,

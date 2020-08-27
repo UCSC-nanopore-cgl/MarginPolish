@@ -183,10 +183,10 @@ void storeReadDepthInformation(stList *depthList, int64_t startPos, int64_t endP
  * with sizes determined by the parameters.
  */
 BamChunker *bamChunker_construct(char *bamFile, PolishParams *params) {
-    return bamChunker_construct2(bamFile, NULL, params);
+    return bamChunker_construct2(bamFile, NULL, params, false);
 }
 
-BamChunker *bamChunker_construct2(char *bamFile, char *region, PolishParams *params) {
+BamChunker *bamChunker_construct2(char *bamFile, char *region, PolishParams *params, bool recordFilteredReads) {
 
     // are we doing region filtering?
     bool filterByRegion = false;
@@ -244,9 +244,9 @@ BamChunker *bamChunker_construct2(char *bamFile, char *region, PolishParams *par
         if (aln->core.n_cigar == 0) continue;
         if ((aln->core.flag & (uint16_t) 0x4) != 0)
             continue; //unaligned
-        if (!params->includeSecondaryAlignments && (aln->core.flag & (uint16_t) 0x100) != 0)
+        if (!recordFilteredReads && !params->includeSecondaryAlignments && (aln->core.flag & (uint16_t) 0x100) != 0)
             continue; //secondary
-        if (!params->includeSupplementaryAlignments && (aln->core.flag & (uint16_t) 0x800) != 0)
+        if (!recordFilteredReads && !params->includeSupplementaryAlignments && (aln->core.flag & (uint16_t) 0x800) != 0)
             continue; //supplementary
 
         //data

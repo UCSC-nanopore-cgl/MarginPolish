@@ -15,7 +15,7 @@
 
 BamChunker *bamChunker_construct(char *bamFile, PolishParams *params);
 
-BamChunker *bamChunker_construct2(char *bamFile, char *region, PolishParams *params);
+BamChunker *bamChunker_construct2(char *bamFile, char *region, PolishParams *params, bool recordFilteredReads);
 
 BamChunker *bamChunker_copyConstruct(BamChunker *toCopy);
 
