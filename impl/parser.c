@@ -191,6 +191,7 @@ PolishParams  *polishParams_constructEmpty() {
     params->minPosteriorProbForAlignmentAnchorsLength = 2;
     params->includeSoftClipping = FALSE;
     params->shuffleChunks = TRUE;
+    params->shuffleChunksMethod = SCM_SIZE_DESC;
     params->useRepeatCountsInAlignment = FALSE;
     params->chunkSize = 0;
     params->chunkBoundary = 0;
@@ -292,6 +293,17 @@ void polishParams_jsonParse(PolishParams *params, char *buf, size_t r) {
             tokenIndex += stJson_getNestedTokenCount(tokens, tokenIndex + 1);
         } else if (strcmp(keyString, "shuffleChunks") == 0) {
             params->shuffleChunks = stJson_parseBool(js, tokens, ++tokenIndex);
+        } else if (strcmp(keyString, "shuffleChunksMethod") == 0) {
+            jsmntok_t tok = tokens[tokenIndex + 1];
+            char *tokStr = stJson_token_tostr(js, &tok);
+            if (stString_eqcase(tokStr, "random")) {
+                params->shuffleChunksMethod = SCM_RANDOM;
+            } else if (stString_eqcase(tokStr, "size_desc")) {
+                params->shuffleChunksMethod = SCM_SIZE_DESC;
+            } else {
+                st_errAbort("Invald 'shuffleChunksMethod' parameter '%s'.  Expected ('random', 'size_desc').", tokStr);
+            }
+            tokenIndex += stJson_getNestedTokenCount(tokens, tokenIndex + 1);
         } else if (strcmp(keyString, "includeSoftClipping") == 0) {
             params->includeSoftClipping = stJson_parseBool(js, tokens, ++tokenIndex);
         } else if (strcmp(keyString, "useRepeatCountsInAlignment") == 0) {

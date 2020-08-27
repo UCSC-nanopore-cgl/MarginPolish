@@ -551,6 +551,11 @@ stRPHmmParameters *parseParameters(char *paramsFile);
  * Parameter object for polish algorithm
  */
 
+typedef enum {
+    SCM_RANDOM=0,
+    SCM_SIZE_DESC=1,
+} ShuffleChunksMethod;
+
 struct _polishParams {
 	bool useRunLengthEncoding;
 
@@ -567,6 +572,7 @@ struct _polishParams {
 
 	// chunking configuration
 	bool shuffleChunks;
+    ShuffleChunksMethod shuffleChunksMethod;
 	bool includeSoftClipping;
 	uint64_t chunkSize;
 	uint64_t chunkBoundary;

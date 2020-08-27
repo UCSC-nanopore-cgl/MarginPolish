@@ -424,9 +424,17 @@ int main(int argc, char *argv[]) {
         stList_append(chunkOrder, stIntTuple_construct1(i));
     }
     if (params->polishParams->shuffleChunks) {
-        st_logInfo("> Ordering chunks by estimated depth.\n");
-        stList_sort2(chunkOrder, compareBamChunkDepthByIndexInList, bamChunker->chunks);
-        stList_reverse(chunkOrder);
+        switch (params->polishParams->shuffleChunksMethod) {
+            case SCM_SIZE_DESC:
+                st_logInfo("> Ordering chunks by estimated depth.\n");
+                stList_sort2(chunkOrder, compareBamChunkDepthByIndexInList, bamChunker->chunks);
+                stList_reverse(chunkOrder);
+                break;
+            case SCM_RANDOM:
+                st_logInfo("> Randomly shuffling chunks.\n");
+                stList_shuffle(chunkOrder);
+                break;
+        }
     }
 
     // multiproccess the chunks, save to results
