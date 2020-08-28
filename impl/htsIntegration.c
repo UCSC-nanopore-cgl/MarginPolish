@@ -2,6 +2,7 @@
 // Created by tpesout on 1/8/19.
 //
 
+#include <htslib/thread_pool.h>
 #include "htsIntegration.h"
 #include "margin.h"
 #include "lp_lib.h"
@@ -229,6 +230,18 @@ BamChunker *bamChunker_construct2(char *bamFile, char *region, PolishParams *par
     bam_hdr_t *bamHdr = sam_hdr_read(in);
     bam1_t *aln = bam_init1();
 
+    // thread stuff
+    htsThreadPool threadPool = {NULL, 0};
+    # ifdef _OPENMP
+    int tc = omp_get_num_threads();
+    # else
+    int tc = 1;
+    # endif
+    if (!(threadPool.pool = hts_tpool_init(tc))) {
+        fprintf(stderr, "Error creating thread pool\n");
+    }
+    hts_set_opt(in, HTS_OPT_THREAD_POOL, &threadPool);
+
     // list of chunk boundaries
     char *currentContig = NULL;
     int64_t contigStartPos = 0;
@@ -316,6 +329,7 @@ BamChunker *bamChunker_construct2(char *bamFile, char *region, PolishParams *par
     bam_hdr_destroy(bamHdr);
     bam_destroy1(aln);
     sam_close(in);
+    hts_tpool_destroy(threadPool.pool);
 
     return chunker;
 }
@@ -1002,7 +1016,6 @@ void writeHaplotaggedBam(BamChunk *bamChunk, char *inputBamLocation, char *outpu
     int64_t h2Count = 0;
     int64_t h0Count = 0;
 
-
     // input file management
     samFile *in = hts_open(inputBamLocation, "r");
     hts_idx_t *idx = NULL;
@@ -1026,13 +1039,25 @@ void writeHaplotaggedBam(BamChunk *bamChunk, char *inputBamLocation, char *outpu
     }
     FILE *readOut = NULL;
 
+    // thread stuff
+    htsThreadPool threadPool = {NULL, 0};
+    # ifdef _OPENMP
+    int tc = omp_get_num_threads();
+    # else
+    int tc = 1;
+    # endif
+    if (!(threadPool.pool = hts_tpool_init(tc))) {
+        fprintf(stderr, "Error creating thread pool\n");
+    }
+    hts_set_opt(in, HTS_OPT_THREAD_POOL, &threadPool);
+    hts_set_opt(out, HTS_OPT_THREAD_POOL, &threadPool);
+
     // prep for index (not entirely sure what all this does.  see samtools/sam_view.c
     int filter_state = ALL, filter_op = 0;
     int result;
     samview_settings_t settings = { .bed = NULL };
     char* region[1] = {};
 
-    //TODO validate how to read with and without a region
     if (bamChunk != NULL) {
         region[0] = stString_print("%s:%d-%d", bamChunk->refSeqName, bamChunk->chunkOverlapStart,
                                    bamChunk->chunkOverlapEnd);
@@ -1106,6 +1131,7 @@ void writeHaplotaggedBam(BamChunk *bamChunk, char *inputBamLocation, char *outpu
     bam_hdr_destroy(bamHdr);
     sam_close(in);
     sam_close(out);
+    hts_tpool_destroy(threadPool.pool);
     free(chunkIdentifier);
     free(haplotaggedBamOutFile);
 }
