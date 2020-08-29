@@ -233,7 +233,7 @@ BamChunker *bamChunker_construct2(char *bamFile, char *region, PolishParams *par
     // thread stuff
     htsThreadPool threadPool = {NULL, 0};
     # ifdef _OPENMP
-    int tc = omp_get_num_threads();
+    int tc = omp_get_max_threads();
     # else
     int tc = 1;
     # endif
@@ -257,10 +257,13 @@ BamChunker *bamChunker_construct2(char *bamFile, char *region, PolishParams *par
         if (aln->core.n_cigar == 0) continue;
         if ((aln->core.flag & (uint16_t) 0x4) != 0)
             continue; //unaligned
-        if (!recordFilteredReads && !params->includeSecondaryAlignments && (aln->core.flag & (uint16_t) 0x100) != 0)
+        if (!params->includeSecondaryAlignments && (aln->core.flag & (uint16_t) 0x100) != 0)
             continue; //secondary
-        if (!recordFilteredReads && !params->includeSupplementaryAlignments && (aln->core.flag & (uint16_t) 0x800) != 0)
+        if (!params->includeSupplementaryAlignments && (aln->core.flag & (uint16_t) 0x800) != 0)
             continue; //supplementary
+        if (aln->core.qual < params->filterAlignmentsWithMapQBelowThisThreshold) { //low mapping quality
+            if (!recordFilteredReads) continue;
+        }
 
         //data
         char *chr = bamHdr->target_name[aln->core.tid];
@@ -1042,7 +1045,7 @@ void writeHaplotaggedBam(BamChunk *bamChunk, char *inputBamLocation, char *outpu
     // thread stuff
     htsThreadPool threadPool = {NULL, 0};
     # ifdef _OPENMP
-    int tc = omp_get_num_threads();
+    int tc = omp_get_max_threads();
     # else
     int tc = 1;
     # endif
