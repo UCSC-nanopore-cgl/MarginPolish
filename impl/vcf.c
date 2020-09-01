@@ -110,8 +110,12 @@ stList *parseVcf(char *vcfFile, Params *params) {
         stList *altAlleles = stString_splitByString(stList_get(elements, 4), ",");
         stList_appendAll(alleles, altAlleles);
         assert(stList_length(alleles) >= (gt1 > gt2 ? gt1 : gt2));
-        char *allele1 = stList_get(alleles, gt1);
-        char *allele2 = stList_get(alleles, gt2);
+        char *allele1 = stString_copy(stList_get(alleles, gt1));
+        char *allele2 = stString_copy(stList_get(alleles, gt2));
+        if (stString_eq(allele2, ".")) {
+            free(allele2);
+            allele2 = stString_copy(stList_get(alleles, 0)); //ref
+        }
 
         // location data
         char *chrom = stList_get(elements, 0);
@@ -134,6 +138,8 @@ stList *parseVcf(char *vcfFile, Params *params) {
         stList_destruct(sample);
         stList_destruct(elements);
         free(line);
+        free(allele1);
+        free(allele2);
 
     }
 

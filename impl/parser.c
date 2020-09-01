@@ -193,12 +193,12 @@ PolishParams  *polishParams_constructEmpty() {
     params->shuffleChunks = TRUE;
     params->shuffleChunksMethod = SCM_SIZE_DESC;
     params->useRepeatCountsInAlignment = FALSE;
-    params->chunkSize = 0;
-    params->chunkBoundary = 0;
-    params->maxDepth = 0;
+    params->chunkSize = 10000;
+    params->chunkBoundary = 1000;
+    params->maxDepth = 64;
     params->includeSecondaryAlignments = FALSE;
-    params->includeSupplementaryAlignments = TRUE;
-    params->filterAlignmentsWithMapQBelowThisThreshold = 30;
+    params->includeSupplementaryAlignments = FALSE;
+    params->filterAlignmentsWithMapQBelowThisThreshold = 10;
     params->candidateVariantWeight = 0.2;
     params->columnAnchorTrim = 5;
     params->maxConsensusStrings = 100;

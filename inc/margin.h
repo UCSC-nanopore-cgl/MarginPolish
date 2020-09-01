@@ -607,6 +607,8 @@ struct _polishParams {
 
 PolishParams *polishParams_readParams(FILE *fileHandle);
 
+PolishParams *polishParams_constructEmpty();
+
 void polishParams_printParameters(PolishParams *polishParams, FILE *fh);
 
 void polishParams_destruct(PolishParams *polishParams);

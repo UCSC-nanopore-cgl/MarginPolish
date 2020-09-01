@@ -869,7 +869,7 @@ void test_polishParams(CuTest *testCase) {
     CuAssertDblEquals(testCase, polishParams->p->threshold, 0.01, 0);
     CuAssertDblEquals(testCase, polishParams->p->minDiagsBetweenTraceBack, 5000, 0);
     CuAssertDblEquals(testCase, polishParams->p->traceBackDiagonals, 40, 0);
-    CuAssertDblEquals(testCase, polishParams->p->diagonalExpansion, 2, 0);
+    CuAssertDblEquals(testCase, polishParams->p->diagonalExpansion, 4, 0);
     CuAssertDblEquals(testCase, polishParams->p->constraintDiagonalTrim, 0, 0);
     CuAssertDblEquals(testCase, polishParams->p->splitMatrixBiggerThanThis, 250000000, 0);
     CuAssertDblEquals(testCase, polishParams->p->gapGamma, 0.5, 0);
@@ -1033,29 +1033,29 @@ void test_binomialPValue(CuTest *testCase) {
 CuSuite *polisherTestSuite(void) {
     CuSuite *suite = CuSuiteNew();
 
-//    SUITE_ADD_TEST(suite, test_poa_getReferenceGraph);
-//    SUITE_ADD_TEST(suite, test_getShift);
-//    SUITE_ADD_TEST(suite, test_rleString_examples);
-//    SUITE_ADD_TEST(suite, test_rle_rotateString);
-//    SUITE_ADD_TEST(suite, test_poa_augment_example);
-//    SUITE_ADD_TEST(suite, test_poa_realign_tiny_example1);
-//    SUITE_ADD_TEST(suite, test_poa_realign);
-//    SUITE_ADD_TEST(suite, test_getShift);
-//    SUITE_ADD_TEST(suite, test_rleString_examples);
-//    SUITE_ADD_TEST(suite, test_addInsert);
-//    SUITE_ADD_TEST(suite, test_removeDelete);
-//    SUITE_ADD_TEST(suite, test_polishParams);
-//    SUITE_ADD_TEST(suite, test_removeOverlapExample);
-//    SUITE_ADD_TEST(suite, test_removeOverlap_RandomExamples);
-//    SUITE_ADD_TEST(suite, test_binomialPValue);
-//    SUITE_ADD_TEST(suite, test_poa_realignIterative);
-//    SUITE_ADD_TEST(suite, test_poa_realign_ecoli_examples_rle);
-//    SUITE_ADD_TEST(suite, test_poa_realign_ecoli_examples_no_rle);
-//    SUITE_ADD_TEST(suite, test_poa_realign_ecoli_many_examples_rle);
-//    SUITE_ADD_TEST(suite, test_poa_realign_ecoli_many_examples_no_rle);
+    SUITE_ADD_TEST(suite, test_poa_getReferenceGraph);
+    SUITE_ADD_TEST(suite, test_getShift);
+    SUITE_ADD_TEST(suite, test_rleString_examples);
+    SUITE_ADD_TEST(suite, test_rle_rotateString);
+    SUITE_ADD_TEST(suite, test_poa_augment_example);
+    SUITE_ADD_TEST(suite, test_poa_realign_tiny_example1);
+    SUITE_ADD_TEST(suite, test_poa_realign);
+    SUITE_ADD_TEST(suite, test_getShift);
+    SUITE_ADD_TEST(suite, test_rleString_examples);
+    SUITE_ADD_TEST(suite, test_addInsert);
+    SUITE_ADD_TEST(suite, test_removeDelete);
+    SUITE_ADD_TEST(suite, test_polishParams);
+    SUITE_ADD_TEST(suite, test_removeOverlapExample);
+    SUITE_ADD_TEST(suite, test_removeOverlap_RandomExamples);
+    SUITE_ADD_TEST(suite, test_binomialPValue);
+    SUITE_ADD_TEST(suite, test_poa_realignIterative);
+    SUITE_ADD_TEST(suite, test_poa_realign_ecoli_examples_rle);
+    SUITE_ADD_TEST(suite, test_poa_realign_ecoli_examples_no_rle);
+    SUITE_ADD_TEST(suite, test_poa_realign_ecoli_many_examples_rle);
+    SUITE_ADD_TEST(suite, test_poa_realign_ecoli_many_examples_no_rle);
     SUITE_ADD_TEST(suite, test_polish5kb_rle);
-//    SUITE_ADD_TEST(suite, test_largeGap);
-//    SUITE_ADD_TEST(suite, test_largeGap2);
+    SUITE_ADD_TEST(suite, test_largeGap);
+    SUITE_ADD_TEST(suite, test_largeGap2);
 
     return suite;
 }

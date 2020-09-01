@@ -581,7 +581,9 @@ uint32_t convertToReadsAndAlignmentsWithFiltered(BamChunk *bamChunk, RleString *
                 if (cigarIdxInRef >= chunkStart && cigarIdxInRef < chunkEnd) {
                     stList_append(cigRepr, stIntTuple_construct3(cigarIdxInRef + refCigarModification,
                                                                  cigarIdxInSeq + seqCigarModification,
-                                                                 polishParams != NULL ? polishParams->p->diagonalExpansion : 10)); //TODO: Tidy up so polish params is not optional
+                                                                 polishParams->p->diagonalExpansion));
+//                                                                 polishParams != NULL && polishParams->p != NULL ?
+//                                                                 polishParams->p->diagonalExpansion : 10)); //TODO: Tidy up so polish params is not optional
                     alignedReadLength++;
                 }
                 cigarIdxInSeq++;

@@ -22,9 +22,9 @@ marginIntegrationTest(char *bamFile, char *referenceFile, char *paramsFile, char
     char *diploidString = diploid ? "--diploid" : "";
     char *outputRepeatCountsString = outputRepeatCounts ? "--outputRepeatCounts" : "";
     char *outputPoaCsvString = outputPoaCsv ? "--outputPoaCsv" : "";
-    char *outputReadPhasingCsvString = outputReadPhasingCsv ? "--outputReadPhasingCsv" : "";
-    char *inMemoryBuffersString = inMemoryBuffers ? "--inMemory" : "";
-    char *command = stString_print("./margin %s %s %s %s %s %s %s %s %s %s --output %s",
+    char *outputReadPhasingCsvString = outputReadPhasingCsv ? "--outputHaplotypeReads" : "";
+    char *inMemoryBuffersString = inMemoryBuffers ? "" : "--tempFilesToDisk";
+    char *command = stString_print("./marginPolish %s %s %s %s %s %s %s %s %s %s --outputBase %s",
                                    bamFile, referenceFile, paramsFile, regionStr, logString, diploidString,
                                    outputRepeatCountsString, outputPoaCsvString, outputReadPhasingCsvString,
                                    inMemoryBuffersString, base);
@@ -78,12 +78,12 @@ void test_marginIntegration2(CuTest *testCase, bool inMemoryBuffers) {
     // outputs
     char *outputHap1File = "temp_output.fa.hap1";
     char *outputHap2File = "temp_output.fa.hap2";
-    char *outputHap1PoaFile = "temp_output_poa.csv.hap1";
-    char *outputHap2PoaFile = "temp_output_poa.csv.hap2";
-    char *outputHap1RepeatCountFile = "temp_output_repeat_counts.csv.hap1";
-    char *outputHap2RepeatCountFile = "temp_output_repeat_counts.csv.hap2";
-    char *outputHap1ReadPhasingFile = "temp_output_reads.csv.hap1";
-    char *outputHap2ReadPhasingFile = "temp_output_reads.csv.hap2";
+    char *outputHap1PoaFile = "temp_output.poa.csv.hap1";
+    char *outputHap2PoaFile = "temp_output.poa.csv.hap2";
+    char *outputHap1RepeatCountFile = "temp_output.repeatCount.csv.hap1";
+    char *outputHap2RepeatCountFile = "temp_output.repeatCount.csv.hap2";
+    char *outputHap1ReadPhasingFile = "temp_output.reads.csv.hap1";
+    char *outputHap2ReadPhasingFile = "temp_output.reads.csv.hap2";
 
     // Parse the sequences
     char *sequenceName = "chr3"; //"122:10980000-11086000";
