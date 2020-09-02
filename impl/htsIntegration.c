@@ -7,6 +7,11 @@
 #include "margin.h"
 #include "lp_lib.h"
 
+//#include <htslib/vcf.h>
+//#include <htslib/faidx.h>
+//#include <htslib/bgzf.h>
+#include "bedidx.h"
+
 /*
  * getAlignedReadLength computes the length of the read sequence which is aligned to the reference.  Hard-clipped bases
  * are never included in this calculation.  Soft-clipped bases are similarly not included, but will be returned via
