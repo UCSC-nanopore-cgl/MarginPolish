@@ -49,6 +49,7 @@ void usage() {
     fprintf(stderr, "    -2 --diploid             : Will perform diploid phasing.\n");
     fprintf(stderr, "    -v --vcf                 : VCF with sites for phasing (will not perform variant detection if set)\n");
     fprintf(stderr, "    -S --skipFilteredReads   : Will NOT attempt to haplotype filtered reads (--diploid only)\n");
+    fprintf(stderr, "    -R --skipRealignment     : Skip realignment (intended for haplotyping only)\n");
 
 # ifdef _HDF5
     fprintf(stderr, "\nHELEN feature generation options:\n");
@@ -94,6 +95,7 @@ int main(int argc, char *argv[]) {
     int64_t maxDepth = -1;
     bool diploid = FALSE;
     bool inMemory = TRUE;
+    bool skipRealignment = FALSE;
 
     // for feature generation
     HelenFeatureType helenFeatureType = HFEAT_NONE;
@@ -130,9 +132,9 @@ int main(int argc, char *argv[]) {
         static struct option long_options[] = {
                 { "help", no_argument, 0, 'h' },
                 { "logLevel", required_argument, 0, 'a' },
-                # ifdef _OPENMP
+# ifdef _OPENMP
                 { "threads", required_argument, 0, 't'},
-                #endif
+#endif
                 { "outputBase", required_argument, 0, 'o'},
                 { "region", required_argument, 0, 'r'},
                 { "depth", required_argument, 0, 'p'},
@@ -142,20 +144,21 @@ int main(int argc, char *argv[]) {
                 { "featureType", required_argument, 0, 'F'},
                 { "trueReferenceBam", required_argument, 0, 'u'},
                 { "splitRleWeightMaxRL", required_argument, 0, 'L'},
-				{ "supplementaryChunks", no_argument, 0, 'c'},
-				{ "supplementaryChunksOnly", no_argument, 0, 'C'},
-				{ "outputRepeatCounts", no_argument, 0, 'i'},
-				{ "outputPoaCsv", no_argument, 0, 'j'},
-				{ "outputPoaDot", no_argument, 0, 'd'},
-				{ "outputHaplotypeBAM", no_argument, 0, 'm'},
-				{ "outputHaplotypeReads", no_argument, 0, 'n'},
+                { "supplementaryChunks", no_argument, 0, 'c'},
+                { "supplementaryChunksOnly", no_argument, 0, 'C'},
+                { "outputRepeatCounts", no_argument, 0, 'i'},
+                { "outputPoaCsv", no_argument, 0, 'j'},
+                { "outputPoaDot", no_argument, 0, 'd'},
+                { "outputHaplotypeBAM", no_argument, 0, 'm'},
+                { "outputHaplotypeReads", no_argument, 0, 'n'},
                 { "tempFilesToDisk", no_argument, 0, 'k'},
                 { "skipFilteredReads", no_argument, 0, 'S'},
                 { "outputPhasingState", no_argument, 0, 't'},
+                { "skipRealignment", no_argument, 0, 'R'},
                 { 0, 0, 0, 0 } };
 
         int option_index = 0;
-        int key = getopt_long(argc-2, &argv[2], "ha:o:v:p:2v:t:r:fF:u:L:cijdmnkSs", long_options, &option_index);
+        int key = getopt_long(argc-2, &argv[2], "ha:o:v:p:2v:t:r:fF:u:L:cijdmnkSsR", long_options, &option_index);
 
         if (key == -1) {
             break;
@@ -241,15 +244,22 @@ int main(int argc, char *argv[]) {
             break;
         case 'm':
             outputHaplotypeBAM = TRUE;
+            diploid = TRUE;
             break;
         case 'n':
             outputHaplotypeReads = TRUE;
+            diploid = TRUE;
             break;
         case 's':
             outputPhasingState = TRUE;
+            diploid = TRUE;
             break;
         case 'S':
             partitionFilteredReads = FALSE;
+            break;
+        case 'R':
+            skipRealignment = TRUE;
+            diploid = TRUE;
             break;
         default:
             usage();
@@ -572,11 +582,19 @@ int main(int argc, char *argv[]) {
         }
 
         // Generate partial order alignment (POA) (destroys rleAlignments in the process)
-        poa = (diploid &&
-               params->polishParams->skipHaploidPolishingIfDiploid) // If diploid check flag to see if bothering with haploid polish
-              ? poa_realign(reads, alignments, rleReference,
-                            params->polishParams) // This option just generates a POA against the input reference backgroun
-              : poa_realignAll(reads, alignments, rleReference, params->polishParams); // This option refines the POA
+        if (diploid && skipRealignment) {
+            // This option fills the poa with only cigar-string likelihoods
+            st_logInfo(" %s Getting alignment likelihoods from CIGAR string, and not mutating POA\n", logIdentifier);
+            poa = poa_realignOnlyAnchorAlignments(reads, alignments, rleReference, params->polishParams);
+        } else if (diploid && params->polishParams->skipHaploidPolishingIfDiploid) {
+            // This option generates a POA against the input reference background
+            st_logInfo(" %s Generating alignment likelihoods, but not mutating POA\n", logIdentifier);
+            poa = poa_realign(reads, alignments, rleReference, params->polishParams);
+        } else {
+            // This option refines the POA
+            st_logInfo(" %s Generating alignment likelihoods and mutating POA\n", logIdentifier);
+            poa = poa_realignAll(reads, alignments, rleReference, params->polishParams);
+        }
 
         // Log info about the POA
         if (st_getLogLevel() >= info) {
@@ -731,7 +749,13 @@ int main(int argc, char *argv[]) {
                 removeReadsOnlyInChunkBoundary(bamChunk, filteredReads, filteredAlignments, logIdentifier);
 
                 time_t filteredPhasingStart = time(NULL);
-                Poa *filteredPoa = poa_realign(filteredReads, filteredAlignments, rleReference, params->polishParams);
+                Poa *filteredPoa = NULL;
+                if (skipRealignment) {
+                    filteredPoa = poa_realignOnlyAnchorAlignments(filteredReads, filteredAlignments, rleReference, params->polishParams);
+                } else {
+                    filteredPoa = poa_realign(filteredReads, filteredAlignments, rleReference, params->polishParams);
+                }
+
                 bubbleGraph_partitionFilteredReads(filteredPoa, filteredReads, gf, bg, bamChunk,
                                                    reference_rleToNonRleCoordMap, readsBelongingToHap1,
                                                    readsBelongingToHap2, params->polishParams,

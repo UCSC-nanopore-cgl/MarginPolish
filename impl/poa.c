@@ -682,25 +682,96 @@ Poa *poa_realign(stList *bamChunkReads, stList *anchorAlignments, RleString *ref
     for (int64_t i = 0; i < stList_length(bamChunkReads); i++) {
         BamChunkRead *chunkRead = stList_get(bamChunkReads, i);
 
-		// Generate set of posterior probabilities for matches, deletes and inserts with respect to reference.
-		stList *matches = NULL, *inserts = NULL, *deletes = NULL;
+        // Generate set of posterior probabilities for matches, deletes and inserts with respect to reference.
+        stList *matches = NULL, *inserts = NULL, *deletes = NULL;
 
-		if(anchorAlignments == NULL) {
-			SymbolString sX = rleString_constructSymbolString(reference, 0, reference->length, polishParams->alphabet,
-					polishParams->useRepeatCountsInAlignment, poa->maxRepeatCount - 1);
-			SymbolString sY = rleString_constructSymbolString(chunkRead->rleRead, 0, chunkRead->rleRead->length,
-					polishParams->alphabet, polishParams->useRepeatCountsInAlignment, poa->maxRepeatCount - 1);
+        if(anchorAlignments == NULL) {
+            SymbolString sX = rleString_constructSymbolString(reference, 0, reference->length, polishParams->alphabet,
+                                                              polishParams->useRepeatCountsInAlignment, poa->maxRepeatCount - 1);
+            SymbolString sY = rleString_constructSymbolString(chunkRead->rleRead, 0, chunkRead->rleRead->length,
+                                                              polishParams->alphabet, polishParams->useRepeatCountsInAlignment, poa->maxRepeatCount - 1);
 
-			getAlignedPairsWithIndels(chunkRead->forwardStrand ? polishParams->stateMachineForForwardStrandRead :
-					polishParams->stateMachineForReverseStrandRead,
-					sX, sY, polishParams->p, &matches, &deletes, &inserts, 0, 0);
+            getAlignedPairsWithIndels(chunkRead->forwardStrand ? polishParams->stateMachineForForwardStrandRead :
+                                      polishParams->stateMachineForReverseStrandRead,
+                                      sX, sY, polishParams->p, &matches, &deletes, &inserts, 0, 0);
 
-			symbolString_destruct(sX);
-			symbolString_destruct(sY);
-		}
-		else {
-			getAlignedPairsWithIndelsCroppingReference(reference, chunkRead->rleRead, chunkRead->forwardStrand, stList_get(anchorAlignments, i),
+            symbolString_destruct(sX);
+            symbolString_destruct(sY);
+        }
+        else {
+            getAlignedPairsWithIndelsCroppingReference(reference, chunkRead->rleRead, chunkRead->forwardStrand, stList_get(anchorAlignments, i),
                                                        &matches, &inserts, &deletes, polishParams);
+        }
+
+        // Add weights, edges and nodes to the poa
+        poa_augment(poa, chunkRead->rleRead, chunkRead->forwardStrand, i, matches, inserts, deletes, polishParams);
+
+        // Cleanup
+        stList_destruct(matches);
+        stList_destruct(inserts);
+        stList_destruct(deletes);
+    }
+
+    return poa;
+}
+
+Poa *poa_realignOnlyAnchorAlignments(stList *bamChunkReads, stList *anchorAlignments, RleString *reference,
+        PolishParams *polishParams) {
+    // Build a reference graph with zero weights
+    uint64_t maximumRepeatLength = 2; // MRL is exclusive
+    if (polishParams->useRunLengthEncoding) {
+        if (polishParams->repeatSubMatrix != NULL) {
+            maximumRepeatLength = polishParams->repeatSubMatrix->maximumRepeatLength;
+        } else {
+            maximumRepeatLength = MAXIMUM_REPEAT_LENGTH;
+        }
+    }
+    Poa *poa = poa_getReferenceGraph(reference, polishParams->alphabet, maximumRepeatLength);
+
+    // For each read
+    for (int64_t i = 0; i < stList_length(bamChunkReads); i++) {
+        BamChunkRead *chunkRead = stList_get(bamChunkReads, i);
+        stList *anchorAlignment = stList_get(anchorAlignments, i);
+
+        // Generate set of posterior probabilities for matches, deletes and inserts with respect to reference.
+        stList *matches = stList_construct3(0, (void (*)(void *)) stIntTuple_destruct);
+        stList *inserts = stList_construct3(0, (void (*)(void *)) stIntTuple_destruct);
+        stList *deletes = stList_construct3(0, (void (*)(void *)) stIntTuple_destruct);
+
+
+        stListIterator *alignmentItor = stList_getIterator(anchorAlignment);
+        stIntTuple *currAlign = stList_getNext(alignmentItor);
+        int64_t posRef = stIntTuple_get(currAlign, 0);
+        int64_t posRead = stIntTuple_get(currAlign, 1);
+
+        while (TRUE) {
+            if (currAlign == NULL) break;
+            int64_t currAlignPosRef = stIntTuple_get(currAlign, 0);
+            int64_t currAlignPosRead = stIntTuple_get(currAlign, 1);
+            // Read delete
+            if (posRef < currAlignPosRef) {
+                stList_append(deletes, stIntTuple_construct3(PAIR_ALIGNMENT_PROB_1, currAlignPosRef, currAlignPosRead-1));
+                posRef++;
+            }
+
+            // Read insert
+            else if (posRead < currAlignPosRead) {
+                stList_append(inserts, stIntTuple_construct3(PAIR_ALIGNMENT_PROB_1, currAlignPosRef-1, currAlignPosRead));
+                posRead++;
+            }
+
+            // match
+            else if (posRef == currAlignPosRef && posRead == currAlignPosRead) {
+                stList_append(matches, stIntTuple_construct3(PAIR_ALIGNMENT_PROB_1, currAlignPosRef, currAlignPosRead));
+                posRef++;
+                posRead++;
+                currAlign = stList_getNext(alignmentItor);
+            }
+
+            // should never happen
+            else {
+                assert(FALSE);
+            }
         }
 
         // Add weights, edges and nodes to the poa

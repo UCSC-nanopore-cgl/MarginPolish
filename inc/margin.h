@@ -631,6 +631,13 @@ void poa_augment(Poa *poa, RleString *read, bool readStrand, int64_t readNo, stL
 Poa *poa_realign(stList *bamChunkReads, stList *alignments, RleString *reference, PolishParams *polishParams);
 
 /*
+ * Creates a POA representing the reference and the inserts / deletes and substitutions only in the anchor
+ * aligments.
+ */
+Poa *poa_realignOnlyAnchorAlignments(stList *bamChunkReads, stList *anchorAlignments, RleString *reference,
+									 PolishParams *polishParams);
+
+/*
  * Generates a set of anchor alignments for the reads aligned to a consensus sequence derived from the poa.
  * These anchors can be used to restrict subsequent alignments to the consensus to generate a new poa.
  * PoaToConsensusMap is a map from the positions in the poa reference sequence to the derived consensus
