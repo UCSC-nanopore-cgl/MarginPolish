@@ -781,6 +781,7 @@ Poa *poa_realignOnlyAnchorAlignments(stList *bamChunkReads, stList *anchorAlignm
         stList_destruct(matches);
         stList_destruct(inserts);
         stList_destruct(deletes);
+        stList_destructIterator(alignmentItor);
     }
 
     return poa;

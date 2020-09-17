@@ -49,7 +49,7 @@ void usage() {
     fprintf(stderr, "    -2 --diploid             : Will perform diploid phasing.\n");
     fprintf(stderr, "    -v --vcf                 : VCF with sites for phasing (will not perform variant detection if set)\n");
     fprintf(stderr, "    -S --skipFilteredReads   : Will NOT attempt to haplotype filtered reads (--diploid only)\n");
-    fprintf(stderr, "    -R --skipRealignment     : Skip realignment (intended for haplotyping only)\n");
+    fprintf(stderr, "    -R --skipRealignment     : Skip realignment (for haplotyping only)\n");
 
 # ifdef _HDF5
     fprintf(stderr, "\nHELEN feature generation options:\n");
@@ -74,9 +74,9 @@ void usage() {
     fprintf(stderr, "    -d --outputPoaDot        : Write out the poa as DOT file (only done per chunk)\n");
     fprintf(stderr, "    -i --outputRepeatCounts  : Write out the repeat counts as CSV file\n");
     fprintf(stderr, "    -j --outputPoaCsv        : Write out the poa as CSV file\n");
-    fprintf(stderr, "    -n --outputHaplotypeReads: Write out phased reads and likelihoods as CSV file\n");
-    fprintf(stderr, "    -m --outputHaplotypeBAM  : Write out phased BAMs\n");
-    fprintf(stderr, "    -s --outputPhasingState  : Write out phasing likelihoods as JSON file\n");
+    fprintf(stderr, "    -n --outputHaplotypeReads: Write out phased reads and likelihoods as CSV file (--diploid only)\n");
+    fprintf(stderr, "    -s --outputPhasingState  : Write out phasing likelihoods as JSON file (--diploid only)\n");
+    fprintf(stderr, "    -M --skipHaplotypeBAM    : Do not write out phased BAMs (--diploid only, default is to write)\n");
     fprintf(stderr, "\n");
 }
 
@@ -110,7 +110,7 @@ int main(int argc, char *argv[]) {
     bool outputPoaCSV = FALSE;
     bool outputRepeatCounts = FALSE;
     bool outputHaplotypeReads = FALSE;
-    bool outputHaplotypeBAM = FALSE;
+    bool outputHaplotypeBAM = TRUE;
     bool writeChunkSupplementaryOutput = FALSE;
     bool partitionFilteredReads = TRUE;
     bool outputPhasingState = FALSE;
@@ -149,7 +149,7 @@ int main(int argc, char *argv[]) {
                 { "outputRepeatCounts", no_argument, 0, 'i'},
                 { "outputPoaCsv", no_argument, 0, 'j'},
                 { "outputPoaDot", no_argument, 0, 'd'},
-                { "outputHaplotypeBAM", no_argument, 0, 'm'},
+                { "skipHaplotypeBAM", no_argument, 0, 'M'},
                 { "outputHaplotypeReads", no_argument, 0, 'n'},
                 { "tempFilesToDisk", no_argument, 0, 'k'},
                 { "skipFilteredReads", no_argument, 0, 'S'},
@@ -158,7 +158,7 @@ int main(int argc, char *argv[]) {
                 { 0, 0, 0, 0 } };
 
         int option_index = 0;
-        int key = getopt_long(argc-2, &argv[2], "ha:o:v:p:2v:t:r:fF:u:L:cijdmnkSsR", long_options, &option_index);
+        int key = getopt_long(argc-2, &argv[2], "ha:o:v:p:2v:t:r:fF:u:L:cijdMnkSsR", long_options, &option_index);
 
         if (key == -1) {
             break;
@@ -242,24 +242,20 @@ int main(int argc, char *argv[]) {
         case 'd':
             outputPoaDOT = TRUE;
             break;
-        case 'm':
-            outputHaplotypeBAM = TRUE;
-            diploid = TRUE;
+        case 'M':
+            outputHaplotypeBAM = FALSE;
             break;
         case 'n':
             outputHaplotypeReads = TRUE;
-            diploid = TRUE;
             break;
         case 's':
             outputPhasingState = TRUE;
-            diploid = TRUE;
             break;
         case 'S':
             partitionFilteredReads = FALSE;
             break;
         case 'R':
             skipRealignment = TRUE;
-            diploid = TRUE;
             break;
         default:
             usage();
