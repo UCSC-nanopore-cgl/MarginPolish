@@ -12,6 +12,13 @@
 //#include <htslib/bgzf.h>
 #include "bedidx.h"
 
+// This structure holds the bed information
+// TODO rewrite the code to just use a void*
+typedef struct samview_settings {
+    void *bed;
+} samview_settings_t;
+
+
 /*
  * getAlignedReadLength computes the length of the read sequence which is aligned to the reference.  Hard-clipped bases
  * are never included in this calculation.  Soft-clipped bases are similarly not included, but will be returned via
@@ -192,19 +199,19 @@ BamChunker *bamChunker_construct(char *bamFile, PolishParams *params) {
     return bamChunker_construct2(bamFile, NULL, params, false);
 }
 
-BamChunker *bamChunker_construct2(char *bamFile, char *region, PolishParams *params, bool recordFilteredReads) {
+BamChunker *bamChunker_construct2(char *bamFile, char *regionStr, PolishParams *params, bool recordFilteredReads) {
 
     // are we doing region filtering?
     bool filterByRegion = false;
     char regionContig[128] = "";
     int regionStart = 0;
     int regionEnd = 0;
-    if (region != NULL) {
-        int scanRet = sscanf(region, "%[^:]:%d-%d", regionContig, &regionStart, &regionEnd);
-        if (scanRet != 3 || strlen(regionContig) == 0) {
-            st_errAbort("Region in unexpected format (expected %%s:%%d-%%d): %s", region);
-        } else if (regionStart < 0 || regionEnd <= 0 || regionEnd <= regionStart) {
-            st_errAbort("Start and end locations in region must be positive, start must be less than end: %s", region);
+    if (regionStr != NULL) {
+        int scanRet = sscanf(regionStr, "%[^:]:%d-%d", regionContig, &regionStart, &regionEnd);
+        if (scanRet != 3 && scanRet != 1) {
+            st_errAbort("Region in unexpected format (expected %%s:%%d-%%d or %%s)): %s", regionStr);
+        } else if (regionStart < 0 || regionEnd < 0 || regionEnd < regionStart) {
+            st_errAbort("Start and end locations in region must be positive, start must be less than end: %s", regionStr);
         }
         filterByRegion = true;
     }
@@ -224,15 +231,21 @@ BamChunker *bamChunker_construct2(char *bamFile, char *region, PolishParams *par
     chunker->chunks = stList_construct3(0, (void *) bamChunk_destruct);
     chunker->chunkCount = 0;
 
-    // open bamfile
-    samFile *in = hts_open(bamFile, "r");
-    if (in == NULL)
+    // file initialization
+    samFile *in = NULL;
+    hts_idx_t *idx = NULL;
+    hts_itr_multi_t *iter = NULL;
+    // bam file
+    if ((in = hts_open(bamFile, "r")) == 0) {
         st_errAbort("ERROR: Cannot open bam file %s\n", bamFile);
-    hts_idx_t *idx = sam_index_load(in, bamFile); // load index (just to verify early that it exists)
-    if (idx == NULL)
-        st_errAbort("ERROR: Missing index for bam file %s\n", bamFile);
-    hts_idx_destroy(idx);
+    }
+    // bam index
+    if ((idx = sam_index_load(in, bamFile)) == 0) {
+        st_errAbort("ERROR: Cannot open index for bam file %s\n", bamFile);
+    }
+    // header
     bam_hdr_t *bamHdr = sam_hdr_read(in);
+    // read object
     bam1_t *aln = bam_init1();
 
     // thread stuff
@@ -247,6 +260,26 @@ BamChunker *bamChunker_construct2(char *bamFile, char *region, PolishParams *par
     }
     hts_set_opt(in, HTS_OPT_THREAD_POOL, &threadPool);
 
+    // prep for index (not entirely sure what all this does.  see samtools/sam_view.c
+    int filter_state = ALL, filter_op = 0;
+    samview_settings_t settings = {.bed = NULL};
+    char *region[1] = {};
+    int regcount = 0;
+    hts_reglist_t *reglist = NULL;
+    if (regionStr != NULL) {
+        region[0] = stString_copy(regionStr);
+        settings.bed = bed_hash_regions(settings.bed, region, 0, 1,
+                                        &filter_op); //insert(1) or filter out(0) the regions from the command line in the same hash table as the bed file
+        if (!filter_op) filter_state = FILTERED;
+        reglist = bed_reglist(settings.bed, filter_state, &regcount);
+        if (!reglist) {
+            st_errAbort("ERROR: Could not create list of regions for read conversion");
+        }
+        if ((iter = sam_itr_regions(idx, bamHdr, reglist, regcount)) == 0) {
+            st_errAbort("ERROR: Cannot open iterator for region %s for bam file %s\n", region[0], bamFile);
+        }
+    }
+
     // list of chunk boundaries
     char *currentContig = NULL;
     int64_t contigStartPos = 0;
@@ -255,7 +288,7 @@ BamChunker *bamChunker_construct2(char *bamFile, char *region, PolishParams *par
 
     // get all reads
     // there is probably a better way (bai?) to find min and max aligned positions (which we need for chunk divisions)
-    while (sam_read1(in, bamHdr, aln) > 0) {
+    while ((regionStr == NULL ? sam_read1(in, bamHdr, aln) : sam_itr_multi_next(in, iter, aln)) > 0) {
 
         // basic filtering (no read length, no cigar)
         if (aln->core.l_qseq <= 0) continue;
@@ -280,8 +313,6 @@ BamChunker *bamChunker_construct2(char *bamFile, char *region, PolishParams *par
 
         // does this belong in our chunk?
         if (alnReadLength <= 0) continue;
-        if (filterByRegion && (!stString_eq(regionContig, chr) || alnStartPos >= regionEnd || alnEndPos <= regionStart))
-            continue;
 
         // get start and stop position
         int64_t readStartPos = aln->core.pos;           // Left most position of alignment
@@ -318,7 +349,7 @@ BamChunker *bamChunker_construct2(char *bamFile, char *region, PolishParams *par
     }
     // save last contig's chunks
     if (currentContig != NULL) {
-        if (filterByRegion) {
+        if (filterByRegion && regionStart != 0 && regionEnd != 0) {
             contigStartPos = (contigStartPos < regionStart ? regionStart : contigStartPos);
             contigEndPos = (contigEndPos > regionEnd ? regionEnd : contigEndPos);
         }
@@ -333,6 +364,12 @@ BamChunker *bamChunker_construct2(char *bamFile, char *region, PolishParams *par
     assert(stList_length(chunker->chunks) == chunker->chunkCount);
 
     // shut everything down
+    if (regionStr != NULL) {
+        hts_itr_multi_destroy(iter);
+        free(region[0]);
+        bed_destroy(settings.bed);
+    }
+    hts_idx_destroy(idx);
     stList_destruct(estimatedChunkDepths);
     bam_hdr_destroy(bamHdr);
     bam_destroy1(aln);
@@ -406,12 +443,6 @@ int compareBamChunkDepthByIndexInList(const void *a, const void *b, const void *
     const BamChunk *chunk2 = stList_get((stList*)chunkList, stIntTuple_get((stIntTuple*) b, 0));
     return chunk1->estimatedDepth < chunk2->estimatedDepth ? -1 : chunk1->estimatedDepth > chunk2->estimatedDepth ? 1 : 0;
 }
-
-// This structure holds the bed information
-// TODO rewrite the code to just use a void*
-typedef struct samview_settings {
-    void *bed;
-} samview_settings_t;
 
 /*
  * This generates a set of BamChunkReads (and alignments to the reference) from a BamChunk.  The BamChunk describes
