@@ -41,7 +41,9 @@ stList *parseVcf(char *vcfFile, Params *params) {
             continue;
         }
         stList *elements = stString_split(line);
-        assert(stList_length(elements) >= 10);
+        if (stList_length(elements) < 10) {
+            st_errAbort("Malformed VCF line: %s\n", line);
+        }
 
         // get genotype idx
         stList *format = stString_splitByString(stList_get(elements, 8), ":");

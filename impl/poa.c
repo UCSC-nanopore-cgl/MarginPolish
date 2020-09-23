@@ -750,19 +750,19 @@ Poa *poa_realignOnlyAnchorAlignments(stList *bamChunkReads, stList *anchorAlignm
             int64_t currAlignPosRead = stIntTuple_get(currAlign, 1);
             // Read delete
             if (posRef < currAlignPosRef) {
-                stList_append(deletes, stIntTuple_construct3(PAIR_ALIGNMENT_PROB_1, currAlignPosRef, currAlignPosRead-1));
+                stList_append(deletes, stIntTuple_construct3(PAIR_ALIGNMENT_PROB_1, posRef, currAlignPosRead-1));
                 posRef++;
             }
 
             // Read insert
             else if (posRead < currAlignPosRead) {
-                stList_append(inserts, stIntTuple_construct3(PAIR_ALIGNMENT_PROB_1, currAlignPosRef-1, currAlignPosRead));
+                stList_append(inserts, stIntTuple_construct3(PAIR_ALIGNMENT_PROB_1, currAlignPosRef-1, posRead));
                 posRead++;
             }
 
             // match
             else if (posRef == currAlignPosRef && posRead == currAlignPosRead) {
-                stList_append(matches, stIntTuple_construct3(PAIR_ALIGNMENT_PROB_1, currAlignPosRef, currAlignPosRead));
+                stList_append(matches, stIntTuple_construct3(PAIR_ALIGNMENT_PROB_1, posRef, posRead));
                 posRef++;
                 posRead++;
                 currAlign = stList_getNext(alignmentItor);
