@@ -27,7 +27,10 @@ void vcfEntry_destruct(VcfEntry *vcfEntry) {
 #define  Q_WEIGHT .2
 #define DEFAULT_MIN_VCF_QUAL -1
 
-stList *parseVcf(char *vcfFile, char *regionStr, Params *params) {
+stList *parseVcf(char *vcfFile, Params *params) {
+    return parseVcf2(vcfFile, NULL, params);
+}
+stList *parseVcf2(char *vcfFile, char *regionStr, Params *params) {
     stList *entries = stList_construct3(0, (void(*)(void*))vcfEntry_destruct);
     FILE *fp = fopen(vcfFile, "r");
     if (fp == NULL) {

@@ -375,7 +375,7 @@ int main(int argc, char *argv[]) {
     // get vcf entries (if set)
     stList *vcfEntries = NULL;
     if (vcfFile != NULL) {
-        vcfEntries = parseVcf(vcfFile, regionStr, params);
+        vcfEntries = parseVcf2(vcfFile, regionStr, params);
     }
 
     // get chunker for bam.  if regionStr is NULL, it will be ignored
