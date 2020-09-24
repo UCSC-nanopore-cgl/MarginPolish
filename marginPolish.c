@@ -919,6 +919,9 @@ int main(int argc, char *argv[]) {
             int regionStart = 0;
             int regionEnd = 0;
             int scanRet = sscanf(regionStr, "%[^:]:%d-%d", regionContig, &regionStart, &regionEnd);
+            if (scanRet != 3) {
+                regionEnd = (int) strlen(stHash_search(referenceSequences, regionContig));
+            }
             whbBamChunk = bamChunk_construct2(regionContig, -1, regionStart, regionStart, regionEnd,
                     regionEnd, 0, bamChunker);
         }
