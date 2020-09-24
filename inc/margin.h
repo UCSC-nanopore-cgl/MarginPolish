@@ -268,6 +268,9 @@ struct _stRPHmmParameters {
 	// Should homozygous variants be used during bubble finding with input VCF? (improves sequence quality, can confound phasing)
 	bool includeHomozygousVCFEntries;
 
+	// should we include all vcf entries, or just ["PASS", "pass", "."]
+	bool onlyUsePassVCFEntries;
+
 	// Number of iterations to search for bubbles (and remove bubbles with strand or read split below some threshold)
 	int64_t bubbleFindingIterations;
 
@@ -1369,7 +1372,7 @@ struct _vcfEntry {
 VcfEntry *vcfEntry_construct(char *refSeqName, int64_t refPos, int64_t rawRefPos, double phredQuality,
         RleString *allele1, RleString *allele2);
 void vcfEntry_destruct(VcfEntry *vcfEntry);
-stList *parseVcf(char *vcfFile, Params *params);
+stList *parseVcf(char *vcfFile, char *regionStr, Params *params);
 stList *getVcfEntriesForRegion(stList *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos);
 stList *getVcfEntriesForRegion2(stList *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos, double minQual);
 BubbleGraph *bubbleGraph_constructFromPoaAndVCF(Poa *poa, stList *bamChunkReads, stList *vcfEntries,

@@ -77,6 +77,7 @@ void usage() {
     fprintf(stderr, "    -n --outputHaplotypeReads: Write out phased reads and likelihoods as CSV file (--diploid only)\n");
     fprintf(stderr, "    -s --outputPhasingState  : Write out phasing likelihoods as JSON file (--diploid only)\n");
     fprintf(stderr, "    -M --skipHaplotypeBAM    : Do not write out phased BAMs (--diploid only, default is to write)\n");
+    fprintf(stderr, "    -T --skipOutputFasta     : Do not write out phased fasta (--diploid only, default is to write)\n");
     fprintf(stderr, "\n");
 }
 
@@ -115,6 +116,7 @@ int main(int argc, char *argv[]) {
     bool partitionFilteredReads = TRUE;
     bool outputPhasingState = FALSE;
     bool partitionTruthSequences = FALSE;
+    bool skipOutputFasta = FALSE;
 
     if (argc < 4) {
         free(outputBase);
@@ -155,10 +157,11 @@ int main(int argc, char *argv[]) {
                 { "skipFilteredReads", no_argument, 0, 'S'},
                 { "outputPhasingState", no_argument, 0, 't'},
                 { "skipRealignment", no_argument, 0, 'R'},
+                { "skipOutputFasta", no_argument, 0, 'T'},
                 { 0, 0, 0, 0 } };
 
         int option_index = 0;
-        int key = getopt_long(argc-2, &argv[2], "ha:o:v:p:2v:t:r:fF:u:L:cijdMnkSsR", long_options, &option_index);
+        int key = getopt_long(argc-2, &argv[2], "ha:o:v:p:2v:t:r:fF:u:L:cijdMnkSsRT", long_options, &option_index);
 
         if (key == -1) {
             break;
@@ -256,6 +259,9 @@ int main(int argc, char *argv[]) {
             break;
         case 'R':
             skipRealignment = TRUE;
+            break;
+        case 'T':
+            skipOutputFasta = TRUE;
             break;
         default:
             usage();
@@ -369,7 +375,7 @@ int main(int argc, char *argv[]) {
     // get vcf entries (if set)
     stList *vcfEntries = NULL;
     if (vcfFile != NULL) {
-        vcfEntries = parseVcf(vcfFile, params);
+        vcfEntries = parseVcf(vcfFile, regionStr, params);
     }
 
     // get chunker for bam.  if regionStr is NULL, it will be ignored

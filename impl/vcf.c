@@ -27,12 +27,30 @@ void vcfEntry_destruct(VcfEntry *vcfEntry) {
 #define  Q_WEIGHT .2
 #define DEFAULT_MIN_VCF_QUAL -1
 
-stList *parseVcf(char *vcfFile, Params *params) {
+stList *parseVcf(char *vcfFile, char *regionStr, Params *params) {
     stList *entries = stList_construct3(0, (void(*)(void*))vcfEntry_destruct);
     FILE *fp = fopen(vcfFile, "r");
     if (fp == NULL) {
         st_errAbort("Could not open VCF %s\n", vcfFile);
     }
+    char regionContig[128] = "";
+    int regionStart = 0;
+    int regionEnd = 0;
+    if (regionStr != NULL) {
+        int scanRet = sscanf(regionStr, "%[^:]:%d-%d", regionContig, &regionStart, &regionEnd);
+        if (scanRet != 3 && scanRet != 1) {
+            st_errAbort("Region in unexpected format (expected %%s:%%d-%%d or %%s)): %s", regionStr);
+        } else if (regionStart < 0 || regionEnd < 0 || regionEnd < regionStart) {
+            st_errAbort("Start and end locations in region must be positive, start must be less than end: %s", regionStr);
+        }
+        if (scanRet == 1) {
+            regionStart = -1;
+            regionEnd = -1;
+        }
+    }
+    int64_t skippedForRegion = 0;
+    int64_t skippedForNotPass = 0;
+    int64_t skippedForHomozygous = 0;
 
     char *line = NULL;
     while ((line = stFile_getLineFromFile(fp)) != NULL) {
@@ -43,6 +61,25 @@ stList *parseVcf(char *vcfFile, Params *params) {
         stList *elements = stString_split(line);
         if (stList_length(elements) < 10) {
             st_errAbort("Malformed VCF line: %s\n", line);
+        }
+
+        // location data
+        char *chrom = stList_get(elements, 0);
+        int64_t pos = atol(stList_get(elements, 1));
+
+        // quick fail
+        if (regionStr != NULL && (!stString_eq(regionContig, chrom) || (regionStart >= 0 && !(regionStart <= pos && pos < regionEnd)))) {
+            skippedForRegion++;
+            free(line);
+            stList_destruct(elements);
+            continue;
+        }
+        if (params->phaseParams->onlyUsePassVCFEntries && !(
+                stString_eqcase("PASS", stList_get(elements, 6)) || stString_eq(".", stList_get(elements, 6)))) {
+            skippedForNotPass++;
+            free(line);
+            stList_destruct(elements);
+            continue;
         }
 
         // get genotype idx
@@ -79,7 +116,7 @@ stList *parseVcf(char *vcfFile, Params *params) {
         int64_t gt1 = 0;
         int64_t gt2 = 0;
 
-        // early fail
+        // fail
         if (genotypeStr[0] != '.') {
             gt1 = genotypeStr[0] - '0';
         }
@@ -119,10 +156,6 @@ stList *parseVcf(char *vcfFile, Params *params) {
             allele2 = stString_copy(stList_get(alleles, 0)); //ref
         }
 
-        // location data
-        char *chrom = stList_get(elements, 0);
-        int64_t pos = atol(stList_get(elements, 1));
-
         // save it
         if (gt1 != gt2 || params->phaseParams->includeHomozygousVCFEntries) {
             RleString *rleAllele1 = params->polishParams->useRunLengthEncoding ? rleString_construct(allele1)
@@ -131,6 +164,8 @@ stList *parseVcf(char *vcfFile, Params *params) {
                     : rleString_construct_no_rle(allele2);
             VcfEntry *entry = vcfEntry_construct(chrom, pos, pos, variantQuality, rleAllele1, rleAllele2);
             stList_append(entries, entry);
+        } else {
+            skippedForHomozygous++;
         }
 
         // cleanup
@@ -148,8 +183,13 @@ stList *parseVcf(char *vcfFile, Params *params) {
     // cleanup
     fclose(fp);
 
-    st_logCritical("> Parsed %"PRId64" %sVCF entries from %s\n", stList_length(entries),
-            params->phaseParams->includeHomozygousVCFEntries ? " " : "HET ", vcfFile);
+    st_logCritical("> Parsed %"PRId64" %sVCF entries from %s; skipped %"PRId64" for region, %"PRId64" for not being "
+                   "PASS, %"PRId64" for being homozygous\n",
+            stList_length(entries), params->phaseParams->includeHomozygousVCFEntries ? " " : "HET ", vcfFile,
+            skippedForRegion, skippedForNotPass, skippedForHomozygous);
+    if (stList_length(entries) == 0) {
+        st_errAbort("No valid VCF entries found!");
+    }
     return entries;
 }
 

@@ -32,6 +32,7 @@ stRPHmmParameters *stRPHmmParameters_construct() {
 
     // bubble parameters
     params->includeHomozygousVCFEntries = FALSE;
+    params->onlyUsePassVCFEntries = TRUE;
     params->bubbleFindingIterations = 1;
     params->bubbleMinBinomialStrandLikelihood = .05;
     params->bubbleMinBinomialReadSplitLikelihood = .05;
@@ -60,6 +61,7 @@ stRPHmmParameters *stRPHmmParameters_copy(stRPHmmParameters *toCopy) {
 
     // bubble parameters
     params->includeHomozygousVCFEntries = toCopy->includeHomozygousVCFEntries;
+    params->onlyUsePassVCFEntries = toCopy->onlyUsePassVCFEntries;
     params->bubbleFindingIterations = toCopy->bubbleFindingIterations;
     params->bubbleMinBinomialStrandLikelihood = toCopy->bubbleMinBinomialStrandLikelihood;
     params->bubbleMinBinomialReadSplitLikelihood = toCopy->bubbleMinBinomialReadSplitLikelihood;
@@ -99,6 +101,8 @@ void stRPHmmParameters_parseParametersFromJson(stRPHmmParameters *params, char *
             params->minPhredScoreForHaplotypePartition = stJson_parseInt(js, tokens, ++i);
         } else if (strcmp(keyString, "includeHomozygousVCFEntries") == 0) {
             params->includeHomozygousVCFEntries = stJson_parseBool(js, tokens, ++i);
+        } else if (strcmp(keyString, "onlyUsePassVCFEntries") == 0) {
+            params->onlyUsePassVCFEntries = stJson_parseBool(js, tokens, ++i);
         } else if (strcmp(keyString, "bubbleFindingIterations") == 0) {
             params->bubbleFindingIterations = stJson_parseInt(js, tokens, ++i);
         } else if (strcmp(keyString, "bubbleMinBinomialStrandLikelihood") == 0) {
