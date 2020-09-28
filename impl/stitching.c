@@ -127,7 +127,7 @@ stList *readChunk2(FILE *fh, char *expectedSequenceName, int64_t expectedChunkOr
     int64_t chunkOrdinal;
     stList *lines = readChunk(fh, &seqName, &chunkOrdinal);
     if (lines == NULL) {
-        st_errAbort("Got no chunk when one was expected\n");
+        return NULL;
     }
     if (!stString_eq(seqName, expectedSequenceName)) {
         st_errAbort("Got an unexpected sequence name: %s in reading chunk (expected: %s)\n", seqName,
@@ -191,14 +191,38 @@ void chunkToStitch_readPoaChunk(FILE *fh, ChunkToStitch *chunk, bool phased) {
     }
 }
 
-void chunkToStitch_readReadPhasingChunk(FILE *fh, ChunkToStitch *chunk) {
+bool chunkToStitch_readReadPhasingChunk(FILE *fh, ChunkToStitch *chunk) {
     /*
-     * Reads a read phasing chunk.
+     * Reads a read phasing chunk.  Returns true if chunk was found, returns FALSE if end of chunk
      */
     assert(chunk->readsHap1Lines == NULL);
     assert(chunk->readsHap2Lines == NULL);
-    chunk->readsHap1Lines = readChunk2(fh, chunk->seqName, chunk->chunkOrdinal);
-    chunk->readsHap2Lines = readChunk2(fh, chunk->seqName, chunk->chunkOrdinal);
+    if (chunk->seqName == NULL) { // case where we are skipping fasta output for improved speed
+        chunk->readsHap1Lines = readChunk(fh, &chunk->seqName, &chunk->chunkOrdinal);
+        int64_t i;
+        char *name;
+        chunk->readsHap2Lines = readChunk(fh, &name, &i);
+        if (chunk->readsHap2Lines == NULL) {
+            st_errAbort("Error trying to get hap2 sequence ids from chunk");
+        }
+        if (i != chunk->chunkOrdinal) {
+            st_errAbort("Got an unexpected chunk ordinal (%"PRIi64") in reading sequence lines (expected: %"PRIi64")\n",
+                    i, chunk->chunkOrdinal);
+        }
+        if (!stString_eq(chunk->seqName, name)) {
+            st_errAbort("Got an unexpected hap2 sequence name: %s in reading sequence lines (expected: %s)\n", name,
+                        chunk->seqName);
+        }
+        free(name);
+    } else { // standard case, chunk is initialized from sequence file
+        chunk->readsHap1Lines = readChunk2(fh, chunk->seqName, chunk->chunkOrdinal);
+        chunk->readsHap2Lines = readChunk2(fh, chunk->seqName, chunk->chunkOrdinal);
+    }
+
+    if (chunk->readsHap1Lines == NULL ^ chunk->readsHap2Lines == NULL) {
+        st_errAbort("Got reads for one chunk but not another! Expected chunk %"PRId64"\n", chunk->chunkOrdinal);
+    }
+    return chunk->readsHap1Lines != NULL;
 }
 
 void chunkToStitch_readRepeatCountChunk(FILE *fh, ChunkToStitch *chunk, bool phased) {
@@ -453,6 +477,12 @@ void renumberCSVLines(stList *csvLines, int64_t index) {
 void chunkToStitch_trimAdjacentChunks2(char **pSeq, char **seq,
                                        stList *pPoa, stList *poa, stList *pRepeatCounts, stList *repeatCounts,
                                        Params *params, int64_t *lengthOfSequenceOutputSoFar) {
+
+    // for very fast case, where we don't write sequences
+    if (*pSeq == NULL && *seq == NULL) {
+        return;
+    }
+
     // Convert to RLE space
     RleString *pSeqRle = params->polishParams->useRunLengthEncoding ?
                          rleString_construct(*pSeq) : rleString_construct_no_rle(*pSeq);
@@ -545,6 +575,7 @@ typedef struct _outputChunker {
      */
     bool useMemoryBuffers;
     // Sequence file
+    bool outputSequence;
     char *outputSequenceFile; // This is either the name of the file or the location in memory of the file buffer
     FILE *outputSequenceFileHandle;
     size_t outputSequenceFileBufferSize; // Used if in memory
@@ -586,7 +617,7 @@ void outputChunker_open(OutputChunker *outputChunker, char *openStr) {
     /*
      * Open the files.
      */
-    outputChunker->outputSequenceFileHandle = open(1, &(outputChunker->outputSequenceFile),
+    outputChunker->outputSequenceFileHandle = open(outputChunker->outputSequence, &(outputChunker->outputSequenceFile),
                                                    &(outputChunker->outputSequenceFileBufferSize),
                                                    outputChunker->useMemoryBuffers, openStr);
     outputChunker->outputPoaFileHandle = open(outputChunker->outputPoa, &(outputChunker->outputPoaFile),
@@ -612,6 +643,7 @@ outputChunker_construct(Params *params, char *outputSequenceFile, char *outputPo
 
     // Initialize variables
     outputChunker->useMemoryBuffers = 0;
+    outputChunker->outputSequence = outputSequenceFile != NULL;
     outputChunker->outputSequenceFile = outputSequenceFile;
     outputChunker->outputPoaFile = outputPoaFile;
     outputChunker->outputPoa = outputPoaFile != NULL;
@@ -628,7 +660,7 @@ outputChunker_construct(Params *params, char *outputSequenceFile, char *outputPo
 }
 
 OutputChunker *
-outputChunker_constructInMemory(Params *params, bool outputPoaFile, bool outputReadPartitionFile,
+outputChunker_constructInMemory(Params *params, bool outputSequence,  bool outputPoaFile, bool outputReadPartitionFile,
                                 bool outputRepeatCountFile) {
     /*
      * Create an OutputChunker object, ready to write chunks of output to the given output files.
@@ -637,6 +669,7 @@ outputChunker_constructInMemory(Params *params, bool outputPoaFile, bool outputR
 
     // Initialize variables
     outputChunker->useMemoryBuffers = 1;
+    outputChunker->outputSequence = outputSequence;
     outputChunker->outputPoa = outputPoaFile;
     outputChunker->outputReadPartition = outputReadPartitionFile;
     outputChunker->outputRepeatCounts = outputRepeatCountFile;
@@ -654,13 +687,16 @@ outputChunker_processChunkSequence(OutputChunker *outputChunker, int64_t chunkOr
     // Create chunk name
     char *headerLinePrefix = stString_print("%s,%" PRIi64 ",", sequenceName, chunkOrdinal);
 
-    // Do run-length decoding
-    char *outputSequence = rleString_expand(poa->refString);
+    // Sequence
+    if (outputChunker->outputSequenceFileHandle != NULL) {
+        // Do run-length decoding
+        char *outputSequence = rleString_expand(poa->refString);
 
-    // Output the sequence, putting the sequence all on one line
-    fprintf(outputChunker->outputSequenceFileHandle, "%s1\n%s\n", headerLinePrefix, outputSequence);
+        // Output the sequence, putting the sequence all on one line
+        fprintf(outputChunker->outputSequenceFileHandle, "%s1\n%s\n", headerLinePrefix, outputSequence);
 
-    // Write any optional outputs about repeat count and POA, etc.
+        free(outputSequence);
+    }
 
     // Poa
     if (outputChunker->outputPoaFileHandle != NULL) {
@@ -678,7 +714,6 @@ outputChunker_processChunkSequence(OutputChunker *outputChunker, int64_t chunkOr
 
     // Cleanup
     free(headerLinePrefix);
-    free(outputSequence);
 }
 
 void
@@ -686,11 +721,11 @@ outputChunker_processChunkSequencePhased2(OutputChunker *outputChunker, char *he
                                           Poa *poa, stList *reads, stSet *readsBelongingToHap1,
                                           stSet *readsBelongingToHap2) {
     // Output the sequence
-    char *outputSequence = rleString_expand(poa->refString);  // Do run-length decoding
-    fprintf(outputChunker->outputSequenceFileHandle, "%s1\n%s\n", headerLinePrefix, outputSequence);
-    free(outputSequence); // Cleanup
-
-    // Write any optional outputs about repeat count and POA, etc.
+    if (outputChunker->outputSequenceFileHandle != NULL) {
+        char *outputSequence = rleString_expand(poa->refString);  // Do run-length decoding
+        fprintf(outputChunker->outputSequenceFileHandle, "%s1\n%s\n", headerLinePrefix, outputSequence);
+        free(outputSequence); // Cleanup
+    }
 
     // Poa
     if (outputChunker->outputPoaFileHandle != NULL) {
@@ -764,15 +799,25 @@ ChunkToStitch *outputChunker_readChunk(OutputChunker *outputChunker, bool phased
      */
     ChunkToStitch *chunk = st_calloc(1, sizeof(ChunkToStitch));
 
-    if (!chunkToStitch_readSequenceChunk(outputChunker->outputSequenceFileHandle, chunk, phased)) {
-        free(chunk);
-        return NULL;
+    if (outputChunker->outputSequenceFile != NULL) {
+        // primary "end of chunk" determinator
+        if (!chunkToStitch_readSequenceChunk(outputChunker->outputSequenceFileHandle, chunk, phased)) {
+            free(chunk);
+            return NULL;
+        }
+    }
+    if (phased) {
+        // secondary "end of chunk" determinator.  used when we are not outputting sequence (for the very fast)
+        if (!chunkToStitch_readReadPhasingChunk(outputChunker->outputReadPartitionFileHandle, chunk)) {
+            if (outputChunker->outputSequenceFile != NULL) {
+                st_errAbort("Expected chunk phasing info but found none! Expected chunk %"PRId64, chunk->chunkOrdinal);
+            }
+            free(chunk);
+            return NULL;
+        }
     }
     if (outputChunker->outputPoaFile != NULL) {
         chunkToStitch_readPoaChunk(outputChunker->outputPoaFileHandle, chunk, phased);
-    }
-    if (phased) {
-        chunkToStitch_readReadPhasingChunk(outputChunker->outputReadPartitionFileHandle, chunk);
     }
     if (outputChunker->outputRepeatCountFile != NULL) {
         chunkToStitch_readRepeatCountChunk(outputChunker->outputRepeatCountFileHandle, chunk, phased);
@@ -873,7 +918,9 @@ void outputChunker_destruct(OutputChunker *outputChunker) {
     outputChunker_close(outputChunker);
 
     // Cleanup the sequence output file
-    free(outputChunker->outputSequenceFile);
+    if (outputChunker->outputSequenceFile != NULL) {
+        free(outputChunker->outputSequenceFile);
+    }
 
     // Cleanup repeat count file
     if (outputChunker->outputRepeatCountFile != NULL) {
@@ -956,8 +1003,8 @@ outputChunkers_construct(int64_t noOfOutputChunkers, Params *params, char *outpu
     outputChunkers->tempFileChunkers = stList_construct3(0, (void (*)(void *)) outputChunker_destruct);
     for (int64_t i = 0; i < noOfOutputChunkers; i++) {
         stList_append(outputChunkers->tempFileChunkers, inMemoryBuffers ?
-            outputChunker_constructInMemory(params, outputPoaFile != NULL, outputReadPartitionFileForStitching != NULL,
-                outputRepeatCountFile != NULL) :
+            outputChunker_constructInMemory(params, outputSequenceFile != NULL, outputPoaFile != NULL,
+                    outputReadPartitionFileForStitching != NULL, outputRepeatCountFile != NULL) :
             outputChunker_construct(params, printTempFileName(outputSequenceFile, i), printTempFileName(outputPoaFile, i),
                 printTempFileName(outputReadPartitionFileForStitching, i), printTempFileName(outputRepeatCountFile, i)));
     }
@@ -1186,6 +1233,11 @@ void outputChunkers_stitchLinear(OutputChunkers *outputChunkers, bool phased) {
 void updateStitchingChunk(ChunkToStitch *stitched, ChunkToStitch *pChunk, stList *hap1Seqs, stList *hap2Seqs,
                           bool phased, bool trackPoa, bool trackRepeatCounts) {
 
+    // for very fast case where we don't write fasta out
+    if (hap1Seqs == NULL && hap2Seqs) {
+        return;
+    }
+
     stList_append(hap1Seqs, stString_copy(pChunk->seqHap1));
     if (phased) {
         stList_append(hap2Seqs, stString_copy(pChunk->seqHap2));
@@ -1235,13 +1287,14 @@ ChunkToStitch *mergeContigChunkz(ChunkToStitch **chunks, int64_t startIdx, int64
     int64_t lengthOfSequenceOutputSoFarHap2 = 0;
 
     // Our "stitched" chunk
+    bool trackSequence = pChunk->seqHap1 != NULL;
     bool trackRepeatCounts = pChunk->repeatCountLinesHap1 != NULL;
     bool trackPoa = pChunk->poaHap1StringsLines != NULL;
     ChunkToStitch *stitched = chunkToStitch_construct(NULL, -1, phased, trackRepeatCounts, trackPoa);
 
     // Lists to keep track of haplotype strings
-    stList *hap1Seqs = stList_construct3(0, free);
-    stList *hap2Seqs = (phased ? stList_construct3(0, free) : NULL);
+    stList *hap1Seqs = (trackSequence ? stList_construct3(0, free) : NULL);
+    stList *hap2Seqs = (phased && trackSequence ? stList_construct3(0, free) : NULL);
 
     // Track the names of the reads in the two haplotypes, if phased
     stHash *hap1Reads, *hap2Reads;
@@ -1276,9 +1329,9 @@ ChunkToStitch *mergeContigChunkz(ChunkToStitch **chunks, int64_t startIdx, int64
 
     // save the last chunk and the read phasing
     updateStitchingChunk(stitched, pChunk, hap1Seqs, hap2Seqs, phased, trackPoa, trackRepeatCounts);
-    stitched->seqHap1 = stString_join2("", hap1Seqs);
+    stitched->seqHap1 = trackSequence ? stString_join2("", hap1Seqs) : NULL;
     if (phased) {
-        stitched->seqHap2 = stString_join2("", hap2Seqs);
+        stitched->seqHap2 = trackSequence ? stString_join2("", hap2Seqs) : NULL;
         // Save back the reads in each haplotype to the stitched chunk
         convertReadPartitionToLines(hap1Reads, stitched->readsHap1Lines);
         convertReadPartitionToLines(hap2Reads, stitched->readsHap2Lines);
@@ -1286,7 +1339,7 @@ ChunkToStitch *mergeContigChunkz(ChunkToStitch **chunks, int64_t startIdx, int64
 
     // cleanup
     chunkToStitch_destruct(pChunk);
-    stList_destruct(hap1Seqs);
+    if (trackSequence) stList_destruct(hap1Seqs);
     if (phased) {
         stList_destruct(hap2Seqs);
         stHash_destruct(hap1Reads);
@@ -1381,7 +1434,7 @@ void outputChunkers_stitchAndTrackReadIds(OutputChunkers *outputChunkers, bool p
     char *referenceSequenceName = stString_copy(chunks[0]->seqName);
     int64_t  lastReportedPercentage = 0;
     time_t mergeStartTime = time(NULL);
-    st_logCritical("> Merging polished reference strings from %"PRIu64" chunks.\n", chunkCount);
+    st_logCritical("> Merging results from %"PRIu64" chunks.\n", chunkCount);
 
     // find which chunks belong to each contig, merge each contig threaded, write out
     for (int64_t chunkIdx = 1; chunkIdx <= chunkCount; chunkIdx++) {

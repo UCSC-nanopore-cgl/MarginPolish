@@ -106,7 +106,8 @@ int main(int argc, char *argv[]) {
     int64_t splitWeightMaxRunLength = 0;
     void **helenHDF5Files = NULL;
 
-    // for supplementary output
+    // what to output
+    bool outputFasta = TRUE;
     bool outputPoaDOT = FALSE;
     bool outputPoaCSV = FALSE;
     bool outputRepeatCounts = FALSE;
@@ -116,7 +117,6 @@ int main(int argc, char *argv[]) {
     bool partitionFilteredReads = TRUE;
     bool outputPhasingState = FALSE;
     bool partitionTruthSequences = FALSE;
-    bool skipOutputFasta = FALSE;
 
     if (argc < 4) {
         free(outputBase);
@@ -261,7 +261,7 @@ int main(int argc, char *argv[]) {
             skipRealignment = TRUE;
             break;
         case 'T':
-            skipOutputFasta = TRUE;
+            outputFasta = FALSE;
             break;
         default:
             usage();
@@ -304,10 +304,18 @@ int main(int argc, char *argv[]) {
         free(idx);
     }
 
+    // sanity check, verify potentially conflicting parameters
+    if (!outputFasta && (outputPoaCSV || outputRepeatCounts )) {
+        st_errAbort("Cannot --outputPoaCSV or --outputRepeatCounts if --skipOutputFasta");
+    }
+
     // Initialization from arguments
     time_t startTime = time(NULL);
     st_setLogLevelFromString(logLevelString);
     free(logLevelString);
+    if (st_getLogLevel() >= info) {
+        st_setCallocDebug(true);
+    }
 # ifdef _OPENMP
     if (numThreads <= 0) {
         numThreads = 1;
@@ -363,6 +371,7 @@ int main(int argc, char *argv[]) {
             st_errAbort("Invalid runLengthEncoding parameter because of HELEN feature type.\n");
         }
     }
+
 
     // Print a report of the parsed parameters
     if (st_getLogLevel() == debug) {
@@ -425,7 +434,7 @@ int main(int argc, char *argv[]) {
     char *outputRepeatCountFile = stString_print("%s.repeatCount.csv", outputBase);
 
     // output chunker tracks intermediate output files
-    OutputChunkers *outputChunkers = outputChunkers_construct(numThreads, params, outputSequenceFile,
+    OutputChunkers *outputChunkers = outputChunkers_construct(numThreads, params, outputFasta ? outputSequenceFile : NULL,
             outputPoaCSV ? outputPoaCsvFile : NULL,
             outputHaplotypeReads ? outputReadCsvFile : NULL,
             outputRepeatCounts ? outputRepeatCountFile : NULL,
