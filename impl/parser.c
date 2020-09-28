@@ -543,7 +543,7 @@ void params_jsonParse(Params *params, char *buf, size_t r, char *paramsFile) {
 
 void params_readParams2(Params *params, char *paramsFile) {
     // open file and check for existence
-    FILE *fh = fopen(paramsFile, "rb");
+    FILE *fh = safe_fopen(paramsFile, "rb");
     if (fh == NULL) {
         st_errAbort("ERROR: Cannot open parameters file %s\n", paramsFile);
     }

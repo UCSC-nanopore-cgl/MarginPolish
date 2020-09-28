@@ -1186,7 +1186,7 @@ void poa_writeSupplementalChunkInformation2(char *outputBase, char *haplotypeIde
         char *outputPoaDotFilename = stString_print("%s.poa.C%05"PRId64".%s-%"PRId64"-%"PRId64"%s.dot",
                                                     outputBase, chunkIdx, bamChunk->refSeqName, bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd,
                                                     haplotypeIdentifier);
-        FILE *outputPoaTsvFileHandle = fopen(outputPoaDotFilename, "w");
+        FILE *outputPoaTsvFileHandle = safe_fopen(outputPoaDotFilename, "w");
         poa_printDOT(poa, outputPoaTsvFileHandle, reads);
         fclose(outputPoaTsvFileHandle);
         free(outputPoaDotFilename);
@@ -1195,7 +1195,7 @@ void poa_writeSupplementalChunkInformation2(char *outputBase, char *haplotypeIde
         char *outputPoaCsvFilename = stString_print("%s.poa.C%05"PRId64".%s-%"PRId64"-%"PRId64"%s.csv",
                                                     outputBase, chunkIdx, bamChunk->refSeqName, bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd,
                                                     haplotypeIdentifier);
-        FILE *outputPoaCsvFileHandle = fopen(outputPoaCsvFilename, "w");
+        FILE *outputPoaCsvFileHandle = safe_fopen(outputPoaCsvFilename, "w");
         poa_printCSV(poa, outputPoaCsvFileHandle, reads, params->polishParams->repeatSubMatrix, 5);
         fclose(outputPoaCsvFileHandle);
         free(outputPoaCsvFilename);
@@ -1204,7 +1204,7 @@ void poa_writeSupplementalChunkInformation2(char *outputBase, char *haplotypeIde
         char *outputRepeatCountFilename = stString_print("%s.repeatCount.C%05"PRId64".%s-%"PRId64"-%"PRId64"%s.csv",
                                                          outputBase, chunkIdx, bamChunk->refSeqName, bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd,
                                                          haplotypeIdentifier);
-        FILE *outputRepeatCountFileHandle = fopen(outputRepeatCountFilename, "w");
+        FILE *outputRepeatCountFileHandle = safe_fopen(outputRepeatCountFilename, "w");
         poa_printRepeatCountsCSV(poa, outputRepeatCountFileHandle, reads);
         fclose(outputRepeatCountFileHandle);
         free(outputRepeatCountFilename);
@@ -1231,13 +1231,13 @@ void poa_writeSupplementalChunkInformationDiploid(char *outputBase, int64_t chun
     if (outputHaplotypedReadIdCsv) {
         char *readIdsHap1Filename = stString_print("%s.readIds.C%05"PRId64".%s-%"PRId64"-%"PRId64".hap1.csv",
                                                    outputBase, chunkIdx, bamChunk->refSeqName, bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd);
-        FILE *readIdsHap1File = fopen(readIdsHap1Filename, "w");
+        FILE *readIdsHap1File = safe_fopen(readIdsHap1Filename, "w");
         stGenomeFragment_printPartitionAsCSV(genomeFragment, readIdsHap1File, params->phaseParams, TRUE, NULL);
         fclose(readIdsHap1File);
 
         char *readIdsHap2Filename = stString_print("%s.readIds.C%05"PRId64".%s-%"PRId64"-%"PRId64".hap2.csv",
                                                    outputBase, chunkIdx, bamChunk->refSeqName, bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd);
-        FILE *readIdsHap2File = fopen(readIdsHap2Filename, "w");
+        FILE *readIdsHap2File = safe_fopen(readIdsHap2Filename, "w");
         stGenomeFragment_printPartitionAsCSV(genomeFragment, readIdsHap2File, params->phaseParams, FALSE, NULL);
         fclose(readIdsHap2File);
 

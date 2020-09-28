@@ -579,7 +579,7 @@ static FILE *open(bool output, char **file, size_t *outputBufferSize, bool inMem
         assert(stString_eq(openStr, "r"));
         return fmemopen(*file, (*outputBufferSize) + 1, "r");
     }
-    return fopen(*file, openStr);
+    return safe_fopen(*file, openStr);
 }
 
 void outputChunker_open(OutputChunker *outputChunker, char *openStr) {

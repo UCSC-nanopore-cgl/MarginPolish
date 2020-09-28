@@ -391,7 +391,7 @@ int main(int argc, char *argv[]) {
 
     // print chunk info
     char *outputChunksFile = stString_print("%s.chunks.csv", outputBase);
-    FILE *chunksOut = fopen(outputChunksFile, "w");
+    FILE *chunksOut = safe_fopen(outputChunksFile, "w");
     for (int64_t i = 0; i < bamChunker->chunkCount; i++) {
         BamChunk *c = stList_get(bamChunker->chunks, i);
         fprintf(chunksOut, "%s,%"PRId64",%"PRId64",%"PRId64",%"PRId64"\n", c->refSeqName, c->chunkOverlapStart,
@@ -439,18 +439,19 @@ int main(int argc, char *argv[]) {
     if (params->polishParams->shuffleChunks) {
         switch (params->polishParams->shuffleChunksMethod) {
             case SCM_SIZE_DESC:
-                st_logInfo("> Ordering chunks by estimated depth.\n");
+                st_logCritical("> Ordering chunks by estimated depth\n");
                 stList_sort2(chunkOrder, compareBamChunkDepthByIndexInList, bamChunker->chunks);
                 stList_reverse(chunkOrder);
                 break;
             case SCM_RANDOM:
-                st_logInfo("> Randomly shuffling chunks.\n");
+                st_logCritical("> Randomly shuffling chunks\n");
                 stList_shuffle(chunkOrder);
                 break;
         }
     }
 
     // multiproccess the chunks, save to results
+    st_logCritical("> Setup complete, beginning run\n");
     int64_t lastReportedPercentage = 0;
     time_t polishStartTime = time(NULL);
 
@@ -724,7 +725,7 @@ int main(int argc, char *argv[]) {
                 chunkBubbleOutFilename = stString_print("%s.C%05"PRId64".%s-%"PRId64"-%"PRId64".phasingInfo.json",
                                                         outputBase, chunkIdx,  bamChunk->refSeqName, bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd);
                 st_logInfo(" %s Saving chunk phasing info to: %s\n", logIdentifier, chunkBubbleOutFilename);
-                chunkBubbleOut = fopen(chunkBubbleOutFilename, "w");
+                chunkBubbleOut = safe_fopen(chunkBubbleOutFilename, "w");
                 fprintf(chunkBubbleOut, "{\n");
                 bubbleGraph_saveBubblePhasingInfo(bamChunk, bg, readsToPSeqs, gf, reference_rleToNonRleCoordMap,
                                                   chunkBubbleOut);

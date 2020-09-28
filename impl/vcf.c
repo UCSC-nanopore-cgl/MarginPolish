@@ -32,7 +32,7 @@ stList *parseVcf(char *vcfFile, Params *params) {
 }
 stList *parseVcf2(char *vcfFile, char *regionStr, Params *params) {
     stList *entries = stList_construct3(0, (void(*)(void*))vcfEntry_destruct);
-    FILE *fp = fopen(vcfFile, "r");
+    FILE *fp = safe_fopen(vcfFile, "r");
     if (fp == NULL) {
         st_errAbort("Could not open VCF %s\n", vcfFile);
     }

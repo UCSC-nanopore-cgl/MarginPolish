@@ -32,7 +32,7 @@ stHash *parseReferenceSequences(char *referenceFastaFile) {
      * Get hash of reference sequence names in fasta to their sequences, doing some munging on the sequence names.
      */
     st_logCritical("> Parsing reference sequences from file: %s\n", referenceFastaFile);
-    FILE *fh = fopen(referenceFastaFile, "r");
+    FILE *fh = safe_fopen(referenceFastaFile, "r");
     stHash *referenceSequences = fastaReadToMap(fh);  //valgrind says blocks from this allocation are "still reachable"
     fclose(fh);
     // log names and transform (if necessary)
@@ -67,6 +67,19 @@ char *getFileBase(char *base, char *defawlt) {
     } else {
         return stString_copy(base);
     }
+}
+
+FILE *safe_fopen(char *file, char *openStr) {
+    FILE *fp = fopen(file, openStr);
+    if (fp == NULL) {
+        st_logInfo("> File %s failed to open! Attempting again. \n", file);
+        usleep(100000); // 100ms
+        fp = fopen(file, openStr);
+        if (fp == NULL) {
+            st_errAbort("Could not open file %s for '%s'\n", file, openStr);
+        }
+    }
+    return fp;
 }
 
 RleString *bamChunk_getReferenceSubstring(BamChunk *bamChunk, stHash *referenceSequences, Params *params) {
@@ -393,7 +406,7 @@ void *chunkTruthHaplotypes_print(stList *readsInHap1, stList *readsInHap2, stLis
     }
 
     // write
-    FILE *out = fopen(filename, "w");
+    FILE *out = safe_fopen(filename, "w");
     fprintf(out, "#contig\tstartPos\tendPos\toverlapStart\toverlapEnd\thap\tsequenceName\n");
     for (int64_t chunkIdx = 0; chunkIdx < length; chunkIdx++) {
         ChunkTruthHaplotypes *cth = cths[chunkIdx];

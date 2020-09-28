@@ -298,7 +298,7 @@ void PoaFeature_handleHelenFeatures(
                                                               bamChunk->chunkOverlapStart,
                                                               bamChunk->chunkOverlapEnd,
                                                               helenFeatureOutfileBase);
-            FILE *chunkPolishedRefOutFh = fopen(chunkPolishedRefFilename, "w");
+            FILE *chunkPolishedRefOutFh = safe_fopen(chunkPolishedRefFilename, "w");
             fastaWrite(polishedConsensusString, chunkPolishedRefContigName, chunkPolishedRefOutFh);
             fclose(chunkPolishedRefOutFh);
             free(chunkPolishedRefFilename);

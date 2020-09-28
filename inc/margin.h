@@ -16,8 +16,8 @@
 #include <ctype.h>
 #include <time.h>
 #include <ctype.h>
-#include <unistd.h>
 #include <stdio.h>
+#include <unistd.h>
 #include <string.h>
 
 #include "sonLib.h"
@@ -1387,6 +1387,8 @@ char *getTimeDescriptorFromSeconds(int64_t seconds);
 stHash *parseReferenceSequences(char *referenceFastaFile);
 
 char *getFileBase(char *base, char *defawlt);
+
+FILE *safe_fopen(char *file, char *openStr);
 
 RleString *bamChunk_getReferenceSubstring(BamChunk *bamChunk, stHash *referenceSequences, Params *params);
 uint64_t *getPaddedHaplotypeString(uint64_t *hap, stGenomeFragment *gf, BubbleGraph *bg, Params *params);
