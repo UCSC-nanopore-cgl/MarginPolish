@@ -202,18 +202,17 @@ bool chunkToStitch_readReadPhasingChunk(FILE *fh, ChunkToStitch *chunk) {
         int64_t i;
         char *name;
         chunk->readsHap2Lines = readChunk(fh, &name, &i);
-        if (chunk->readsHap2Lines == NULL) {
-            st_errAbort("Error trying to get hap2 sequence ids from chunk");
+        if (chunk->readsHap2Lines != NULL) {
+            if (i != chunk->chunkOrdinal) {
+                st_errAbort("Got an unexpected chunk ordinal (%"PRIi64") in reading sequence lines (expected: %"PRIi64")\n",
+                        i, chunk->chunkOrdinal);
+            }
+            if (!stString_eq(chunk->seqName, name)) {
+                st_errAbort("Got an unexpected hap2 sequence name: %s in reading sequence lines (expected: %s)\n", name,
+                            chunk->seqName);
+            }
+            free(name);
         }
-        if (i != chunk->chunkOrdinal) {
-            st_errAbort("Got an unexpected chunk ordinal (%"PRIi64") in reading sequence lines (expected: %"PRIi64")\n",
-                    i, chunk->chunkOrdinal);
-        }
-        if (!stString_eq(chunk->seqName, name)) {
-            st_errAbort("Got an unexpected hap2 sequence name: %s in reading sequence lines (expected: %s)\n", name,
-                        chunk->seqName);
-        }
-        free(name);
     } else { // standard case, chunk is initialized from sequence file
         chunk->readsHap1Lines = readChunk2(fh, chunk->seqName, chunk->chunkOrdinal);
         chunk->readsHap2Lines = readChunk2(fh, chunk->seqName, chunk->chunkOrdinal);
@@ -394,6 +393,7 @@ void chunkToStitch_phaseAdjacentChunks(ChunkToStitch *chunk, stHash *readsInHap1
 int64_t removeOverlap(char *prefixString, int64_t prefixStringLength, char *suffixString, int64_t suffixStringLength,
                       int64_t approxOverlap, PolishParams *polishParams,
                       int64_t *prefixStringCropEnd, int64_t *suffixStringCropStart) {
+    char *logIdentifier = getLogIdentifier();
     // Align the overlapping suffix of the prefixString and the prefix of the suffix string
 
     // Get coordinates of substrings to be aligned
@@ -419,6 +419,8 @@ int64_t removeOverlap(char *prefixString, int64_t prefixStringLength, char *suff
             getAlignedPairsUsingAnchors(sM, sX, sY, anchorPairs, polishParams->p, 1, 1);
     //getAlignedPairs(sM, sX, sY, polishParams->p, 1, 1); //stList_construct();
 
+    //st_logInfo(" %s Removing overlap: got %"PRId64" anchor pairs and %"PRId64" aligned pairs\n");
+
     // Cleanup
     symbolString_destruct(sX);
     symbolString_destruct(sY);
@@ -426,8 +428,8 @@ int64_t removeOverlap(char *prefixString, int64_t prefixStringLength, char *suff
     stList_destruct(anchorPairs);
 
     if (stList_length(alignedPairs) == 0 && st_getLogLevel() >= info) {
-        st_logInfo("    Failed to find good overlap. Suffix-string: %s\n", &(prefixString[i]));
-        st_logInfo("    Failed to find good overlap. Prefix-string: %s\n", suffixString);
+        st_logInfo(" %s Failed to find good overlap. Suffix-string: %s\n", logIdentifier, &(prefixString[i]));
+        st_logInfo(" %s Failed to find good overlap. Prefix-string: %s\n", logIdentifier, suffixString);
     }
 
     // Remove the suffix crop
@@ -435,26 +437,31 @@ int64_t removeOverlap(char *prefixString, int64_t prefixStringLength, char *suff
 
     // Pick the median point
     stIntTuple *maxPair = NULL;
+    int64_t maxPairIdx = -1;
     for (int64_t k = 0; k < stList_length(alignedPairs); k++) {
         stIntTuple *aPair = stList_get(alignedPairs, k);
         if (maxPair == NULL || stIntTuple_get(aPair, 0) > stIntTuple_get(maxPair, 0)) {
+            maxPairIdx = k;
             maxPair = aPair;
         }
     }
     if (maxPair == NULL) {
-        st_logCritical("    Failed to find any aligned pairs between overlapping strings, not "
-                       "doing any trimming (approx overlap: %i, len x: %i, len y: %i)\n", approxOverlap,
+        st_logCritical(" %s Failed to find any aligned pairs between overlapping strings, not "
+                       "doing any trimming (approx overlap: %i, len x: %i, len y: %i)\n", logIdentifier, approxOverlap,
                        prefixStringLength, suffixStringLength);
         *prefixStringCropEnd = prefixStringLength;
         *suffixStringCropStart = 0;
     } else {
         *prefixStringCropEnd = stIntTuple_get(maxPair, 1) + i; // Exclusive
         *suffixStringCropStart = stIntTuple_get(maxPair, 2);  // Inclusive
+        //st_logInfo(" %s Selecting best aligned pair at index %"PRId64" with pos (p%"PRId64"+%"PRId64", s%"PRId64")\n",
+        //        logIdentifier, maxPairIdx, stIntTuple_get(maxPair, 1), i, stIntTuple_get(maxPair, 2));
     }
 
     int64_t overlapWeight = maxPair == NULL ? 0 : stIntTuple_get(maxPair, 0);
 
     stList_destruct(alignedPairs);
+    free(logIdentifier);
 
     return overlapWeight;
 }
@@ -490,7 +497,7 @@ void chunkToStitch_trimAdjacentChunks2(char **pSeq, char **seq,
                         rleString_construct(*seq) : rleString_construct_no_rle(*seq);
 
     // Get the trim factor
-    int64_t pSeqCropEnd, seqCropStart;
+    int64_t pSeqCropEnd = -1, seqCropStart = -1;
     int64_t overlapMatchWeight = removeOverlap(pSeqRle->rleString, pSeqRle->length, seqRle->rleString, seqRle->length,
                                                params->polishParams->chunkBoundary * 2,
                                                params->polishParams, &pSeqCropEnd, &seqCropStart);
@@ -503,6 +510,11 @@ void chunkToStitch_trimAdjacentChunks2(char **pSeq, char **seq,
             (int) params->polishParams->chunkBoundary * 2,
             (float) overlapMatchWeight / PAIR_ALIGNMENT_PROB_1, pSeqRle->length - pSeqCropEnd, seqCropStart);
     free(logIdentifier);
+
+    // debug logging
+    //st_logInfo(" %s pSeqCropEnd: %"PRId64"  seqCropStart: %"PRId64"\n", logIdentifier, pSeqCropEnd, seqCropStart);
+    //st_logInfo(" %s pSeq: rle-l%"PRId64"  raw-l%"PRId64"  seq: %s\n", logIdentifier, pSeqRle->length, pSeqRle->nonRleLength, pSeqRle->rleString);
+    //st_logInfo(" %s  Seq: rle-l%"PRId64"  raw-l%"PRId64"  seq: %s\n", logIdentifier, seqRle->length, seqRle->nonRleLength, seqRle->rleString);
 
     // Trim the sequences
 
@@ -863,7 +875,9 @@ void outputChunker_closeAndDeleteFiles(OutputChunker *outputChunker) {
         // if in memory, buffers will be freed in destructor
 
         // Delete the sequence output file
-        stFile_rmrf(outputChunker->outputSequenceFile);
+        if (outputChunker->outputSequenceFile != NULL) {
+            stFile_rmrf(outputChunker->outputSequenceFile);
+        }
 
         // Delete repeat count file
         if (outputChunker->outputRepeatCountFile != NULL) {
@@ -896,10 +910,12 @@ void outputChunker_writeChunkToFinalOutput(OutputChunker *outputChunker,
      */
 
     // Write the sequence
-    if (startOfSequence) {
-        fastaWrite(seq, seqName, outputChunker->outputSequenceFileHandle);
-    } else {
-        fprintf(outputChunker->outputSequenceFileHandle, "%s\n", seq);
+    if (outputChunker->outputSequenceFile != NULL) {
+        if (startOfSequence) {
+            fastaWrite(seq, seqName, outputChunker->outputSequenceFileHandle);
+        } else {
+            fprintf(outputChunker->outputSequenceFileHandle, "%s\n", seq);
+        }
     }
 
     // Write the POA
@@ -1234,7 +1250,7 @@ void updateStitchingChunk(ChunkToStitch *stitched, ChunkToStitch *pChunk, stList
                           bool phased, bool trackPoa, bool trackRepeatCounts) {
 
     // for very fast case where we don't write fasta out
-    if (hap1Seqs == NULL && hap2Seqs) {
+    if (hap1Seqs == NULL && hap2Seqs == NULL) {
         return;
     }
 
