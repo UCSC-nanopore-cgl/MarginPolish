@@ -200,6 +200,7 @@ PolishParams  *polishParams_constructEmpty() {
     params->chunkSize = 10000;
     params->chunkBoundary = 1000;
     params->maxDepth = 64;
+    params->excessiveDepthThreshold = 512;
     params->includeSecondaryAlignments = FALSE;
     params->includeSupplementaryAlignments = FALSE;
     params->filterAlignmentsWithMapQBelowThisThreshold = 10;
@@ -327,6 +328,11 @@ void polishParams_jsonParse(PolishParams *params, char *buf, size_t r) {
                 st_errAbort("ERROR: maxDepth parameter must zero or greater\n");
             }
             params->maxDepth = (uint64_t) stJson_parseInt(js, tokens, tokenIndex);
+        } else if (strcmp(keyString, "excessiveDepthThreshold") == 0) {
+            if (stJson_parseInt(js, tokens, ++tokenIndex) < 0) {
+                st_errAbort("ERROR: excessiveDepthThreshold parameter must zero or greater\n");
+            }
+            params->excessiveDepthThreshold = (uint64_t) stJson_parseInt(js, tokens, tokenIndex);
         } else if (strcmp(keyString, "includeSecondaryAlignments") == 0) {
             params->includeSecondaryAlignments = stJson_parseBool(js, tokens, ++tokenIndex);
         } else if (strcmp(keyString, "includeSupplementaryAlignments") == 0) {

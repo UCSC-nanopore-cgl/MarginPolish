@@ -469,11 +469,11 @@ uint32_t convertToReadsAndAlignmentsWithFiltered(BamChunk *bamChunk, RleString *
     char *contig = bamChunk->refSeqName;
     uint32_t savedAlignments = 0;
     double randomDiscardChance = 1.0;
-    if (bamChunk->estimatedDepth > 8 * polishParams->maxDepth) {
+    if (bamChunk->estimatedDepth > polishParams->excessiveDepthThreshold) {
         char *logIdentifier = getLogIdentifier();
-        randomDiscardChance = 8.0 * polishParams->maxDepth / bamChunk->estimatedDepth;
+        randomDiscardChance = 1.0 * polishParams->excessiveDepthThreshold / bamChunk->estimatedDepth;
         st_logInfo(" %s Randomly removing reads from excessively deep (%"PRId64"/%"PRId64") chunk with chance %f\n",
-                logIdentifier, bamChunk->estimatedDepth, polishParams->maxDepth, 1.0 - randomDiscardChance);
+                logIdentifier, bamChunk->estimatedDepth, polishParams->excessiveDepthThreshold, 1.0 - randomDiscardChance);
     }
 
     // prep for index (not entirely sure what all this does.  see samtools/sam_view.c

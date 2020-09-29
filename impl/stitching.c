@@ -415,11 +415,10 @@ int64_t removeOverlap(char *prefixString, int64_t prefixStringLength, char *suff
     stList *anchorPairs = getKmerAlignmentAnchors(sX, sY, polishParams->p->diagonalExpansion);
 
     // Run the alignment
-    stList *alignedPairs =
-            getAlignedPairsUsingAnchors(sM, sX, sY, anchorPairs, polishParams->p, 1, 1);
-    //getAlignedPairs(sM, sX, sY, polishParams->p, 1, 1); //stList_construct();
+    stList *alignedPairs = getAlignedPairsUsingAnchors(sM, sX, sY, anchorPairs, polishParams->p, 1, 1);
 
-    //st_logInfo(" %s Removing overlap: got %"PRId64" anchor pairs and %"PRId64" aligned pairs\n");
+    st_logInfo(" %s Removing overlap: got %"PRId64" anchor pairs and %"PRId64" aligned pairs for sequences of length x:%"PRId64", y:%"PRId64"\n",
+            logIdentifier, stList_length(anchorPairs), stList_length(alignedPairs), sX.length, sY.length);
 
     // Cleanup
     symbolString_destruct(sX);
@@ -428,8 +427,8 @@ int64_t removeOverlap(char *prefixString, int64_t prefixStringLength, char *suff
     stList_destruct(anchorPairs);
 
     if (stList_length(alignedPairs) == 0 && st_getLogLevel() >= info) {
-        st_logInfo(" %s Failed to find good overlap. Suffix-string: %s\n", logIdentifier, &(prefixString[i]));
-        st_logInfo(" %s Failed to find good overlap. Prefix-string: %s\n", logIdentifier, suffixString);
+        st_logInfo(" %s Failed to find good overlap. Prefix-string: %s\n", logIdentifier, &(prefixString[i]));
+        st_logInfo(" %s Failed to find good overlap. Suffix-string: %s\n", logIdentifier, suffixString);
     }
 
     // Remove the suffix crop
@@ -454,8 +453,9 @@ int64_t removeOverlap(char *prefixString, int64_t prefixStringLength, char *suff
     } else {
         *prefixStringCropEnd = stIntTuple_get(maxPair, 1) + i; // Exclusive
         *suffixStringCropStart = stIntTuple_get(maxPair, 2);  // Inclusive
-        //st_logInfo(" %s Selecting best aligned pair at index %"PRId64" with pos (p%"PRId64"+%"PRId64", s%"PRId64")\n",
-        //        logIdentifier, maxPairIdx, stIntTuple_get(maxPair, 1), i, stIntTuple_get(maxPair, 2));
+        st_logInfo(" %s Selecting best aligned pair at index %"PRId64" with pos p:%"PRId64"+%"PRId64", s:%"PRId64" with weight %"PRId64"\n",
+                logIdentifier, maxPairIdx, stIntTuple_get(maxPair, 1), i, stIntTuple_get(maxPair, 2),
+                stIntTuple_get(maxPair, 0));
     }
 
     int64_t overlapWeight = maxPair == NULL ? 0 : stIntTuple_get(maxPair, 0);
@@ -505,16 +505,38 @@ void chunkToStitch_trimAdjacentChunks2(char **pSeq, char **seq,
     // Log
     char *logIdentifier = getLogIdentifier();
     st_logInfo(
-            " %s Removed overlap between neighbouring chunks (in RLE space). Approx overlap size: %i, "
+            " %s Removing overlap between neighbouring chunks (in RLE space). Approx overlap size: %i, "
             "overlap-match weight: %f, left-trim: %i, right-trim: %i:\n", logIdentifier,
             (int) params->polishParams->chunkBoundary * 2,
             (float) overlapMatchWeight / PAIR_ALIGNMENT_PROB_1, pSeqRle->length - pSeqCropEnd, seqCropStart);
-    free(logIdentifier);
 
     // debug logging
-    //st_logInfo(" %s pSeqCropEnd: %"PRId64"  seqCropStart: %"PRId64"\n", logIdentifier, pSeqCropEnd, seqCropStart);
-    //st_logInfo(" %s pSeq: rle-l%"PRId64"  raw-l%"PRId64"  seq: %s\n", logIdentifier, pSeqRle->length, pSeqRle->nonRleLength, pSeqRle->rleString);
-    //st_logInfo(" %s  Seq: rle-l%"PRId64"  raw-l%"PRId64"  seq: %s\n", logIdentifier, seqRle->length, seqRle->nonRleLength, seqRle->rleString);
+    if (st_getLogLevel() >= info) {
+        char *tmpSeq;
+        if (pSeqRle->length > 17) {
+            char ch = pSeqRle->rleString[8];
+            pSeqRle->rleString[8] = '\0';
+            tmpSeq = stString_print("%s...%s", pSeqRle->rleString, &(pSeqRle->rleString[pSeqRle->length - 8]));
+            pSeqRle->rleString[8] = ch;
+        } else {
+            tmpSeq = stString_copy(pSeqRle->rleString);
+        }
+        st_logInfo(" %s pSeq:  pSeqCropEnd:%7"PRId64", LenRLE:%7"PRId64", LenRAW:%7"PRId64", seq: %s\n",
+                   logIdentifier, pSeqCropEnd, pSeqRle->length, pSeqRle->nonRleLength, tmpSeq);
+        free(tmpSeq);
+
+        if (seqRle->length > 17) {
+            char ch = seqRle->rleString[8];
+            seqRle->rleString[8] = '\0';
+            tmpSeq = stString_print("%s...%s", seqRle->rleString, &(seqRle->rleString[seqRle->length - 8]));
+            seqRle->rleString[8] = ch;
+        } else {
+            tmpSeq = stString_copy(seqRle->rleString);
+        }
+        st_logInfo(" %s  seq: seqCropStart:%7"PRId64", LenRLE:%7"PRId64", LenRAW:%7"PRId64", seq: %s\n",
+                   logIdentifier, seqCropStart, seqRle->length, seqRle->nonRleLength, tmpSeq);
+        free(tmpSeq);
+    }
 
     // Trim the sequences
 
@@ -547,6 +569,7 @@ void chunkToStitch_trimAdjacentChunks2(char **pSeq, char **seq,
     }
 
     // Cleanup
+    free(logIdentifier);
     rleString_destruct(pSeqRle);
     rleString_destruct(pSeqRleCropped);
     rleString_destruct(seqRle);

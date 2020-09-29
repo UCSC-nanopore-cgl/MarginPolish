@@ -526,6 +526,7 @@ struct _polishParams {
 	uint64_t chunkBoundary;
 	// input reads configuration
 	uint64_t maxDepth;
+	uint64_t excessiveDepthThreshold; // depth threshold where we randomly discard reads on initial reading
 	bool includeSecondaryAlignments;
 	bool includeSupplementaryAlignments;
     uint64_t filterAlignmentsWithMapQBelowThisThreshold;
