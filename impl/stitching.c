@@ -8,7 +8,6 @@
 #include "htsIntegration.h"
 
 
-
 int chunkToStitch_cmp(ChunkToStitch *chunk1, ChunkToStitch *chunk2) {
     /*
      * Compares two chunks by their ordinal in the output order.
@@ -360,7 +359,7 @@ void chunkToStitch_phaseAdjacentChunks(ChunkToStitch *chunk, stHash *readsInHap1
 
     // Log the support for the phasing
     char *logIdentifier = getLogIdentifier();
-    st_logInfo(" %s In phasing chunk %"PRId64" got %"
+    st_logInfo(" %s In stitching chunk %"PRId64" got %"
                PRIi64 " hap1 and %" PRIi64 " hap2 reads\n",
                logIdentifier, chunk->chunkOrdinal, stHash_size(chunkHap1Reads), stHash_size(chunkHap2Reads));
     st_logInfo(
@@ -390,6 +389,19 @@ void chunkToStitch_phaseAdjacentChunks(ChunkToStitch *chunk, stHash *readsInHap1
     free(logIdentifier);
 }
 
+char *getLargeNucleotideSequenceSummary(char *sequence) {
+    char *tmpSeq;
+    if (strlen(sequence) > 17) {
+        char ch = sequence[8];
+        sequence[8] = '\0';
+        tmpSeq = stString_print("%s...%s", sequence, &(sequence[strlen(sequence) - 8]));
+        sequence[8] = ch;
+    } else {
+        tmpSeq = stString_copy(sequence);
+    }
+    return tmpSeq;
+}
+
 int64_t removeOverlap(char *prefixString, int64_t prefixStringLength, char *suffixString, int64_t suffixStringLength,
                       int64_t approxOverlap, PolishParams *polishParams,
                       int64_t *prefixStringCropEnd, int64_t *suffixStringCropStart) {
@@ -412,13 +424,27 @@ int64_t removeOverlap(char *prefixString, int64_t prefixStringLength, char *suff
     StateMachine *sM = stateMachine3_constructNucleotide(threeState);
 
     // Get quick and dirty anchor pairs
-    stList *anchorPairs = getKmerAlignmentAnchors(sX, sY, polishParams->p->diagonalExpansion);
+    stList *anchorPairs = getKmerAlignmentAnchors(sX, sY, (uint64_t) polishParams->p->diagonalExpansion);
+    stList *alignedPairs = NULL;
 
-    // Run the alignment
-    stList *alignedPairs = getAlignedPairsUsingAnchors(sM, sX, sY, anchorPairs, polishParams->p, 1, 1);
+    //TODO if both strings are full of N's and we are not using RLE, something in the anchor/alignment breaks
+    if (stList_length(anchorPairs) < 2) {
+        bool pSeqNs = prefixString[i] == 'N' && prefixString[strlen(prefixString) - 1] == 'N';
+        bool sSeqNs = suffixString[0] == 'N' && suffixString[j-1] == 'N';
+        st_logInfo(" %s Anchoring for overlap alignment (lengths p:%"PRId64", s:%"PRId64") failed for having %"PRId64" "
+                   "entries, N-flanked prefix: %s, suffix: %s\n",
+                logIdentifier, sX.length, sY.length, stList_length(anchorPairs), pSeqNs ? "TRUE" : "FALSE",
+                sSeqNs ? "TRUE" : "FALSE");
 
-    st_logInfo(" %s Removing overlap: got %"PRId64" anchor pairs and %"PRId64" aligned pairs for sequences of length x:%"PRId64", y:%"PRId64"\n",
-            logIdentifier, stList_length(anchorPairs), stList_length(alignedPairs), sX.length, sY.length);
+        // Do not attempt alignment
+        alignedPairs = stList_construct();
+    } else {
+        // Anchoring worked: run the alignment
+        alignedPairs = getAlignedPairsUsingAnchors(sM, sX, sY, anchorPairs, polishParams->p, 1, 1);
+        st_logInfo(" %s Got %"PRId64" anchor pairs and %"PRId64" aligned pairs while removing overlap for sequences of "
+                                                                                 "length x:%"PRId64", y:%"PRId64"\n",
+                   logIdentifier, stList_length(anchorPairs), stList_length(alignedPairs), sX.length, sY.length);
+    }
 
     // Cleanup
     symbolString_destruct(sX);
@@ -427,8 +453,12 @@ int64_t removeOverlap(char *prefixString, int64_t prefixStringLength, char *suff
     stList_destruct(anchorPairs);
 
     if (stList_length(alignedPairs) == 0 && st_getLogLevel() >= info) {
-        st_logInfo(" %s Failed to find good overlap. Prefix-string: %s\n", logIdentifier, &(prefixString[i]));
-        st_logInfo(" %s Failed to find good overlap. Suffix-string: %s\n", logIdentifier, suffixString);
+        char *pSeqSummary = getLargeNucleotideSequenceSummary(&(prefixString[i]));
+        char *sSeqSummary = getLargeNucleotideSequenceSummary(suffixString);
+        st_logInfo(" %s Failed to find good overlap. Prefix-string: %s\n", logIdentifier, pSeqSummary);
+        st_logInfo(" %s Failed to find good overlap. Suffix-string: %s\n", logIdentifier, sSeqSummary);
+        free(pSeqSummary);
+        free(sSeqSummary);
     }
 
     // Remove the suffix crop
@@ -458,7 +488,7 @@ int64_t removeOverlap(char *prefixString, int64_t prefixStringLength, char *suff
                 stIntTuple_get(maxPair, 0));
     }
 
-    int64_t overlapWeight = maxPair == NULL ? 0 : stIntTuple_get(maxPair, 0);
+    int64_t overlapWeight = maxPair == NULL ? -1 : stIntTuple_get(maxPair, 0);
 
     stList_destruct(alignedPairs);
     free(logIdentifier);
@@ -481,13 +511,13 @@ void renumberCSVLines(stList *csvLines, int64_t index) {
     }
 }
 
-void chunkToStitch_trimAdjacentChunks2(char **pSeq, char **seq,
+int64_t chunkToStitch_trimAdjacentChunks2(char **pSeq, char **seq,
                                        stList *pPoa, stList *poa, stList *pRepeatCounts, stList *repeatCounts,
                                        Params *params, int64_t *lengthOfSequenceOutputSoFar) {
 
-    // for very fast case, where we don't write sequences
+    // for very fast case where we don't write sequences, sanity check error case (this should be covered)
     if (*pSeq == NULL && *seq == NULL) {
-        return;
+        st_errAbort(" %s Encountered null sequences when stitching adjacent chunks!", getLogIdentifier());
     }
 
     // Convert to RLE space
@@ -512,27 +542,12 @@ void chunkToStitch_trimAdjacentChunks2(char **pSeq, char **seq,
 
     // debug logging
     if (st_getLogLevel() >= info) {
-        char *tmpSeq;
-        if (pSeqRle->length > 17) {
-            char ch = pSeqRle->rleString[8];
-            pSeqRle->rleString[8] = '\0';
-            tmpSeq = stString_print("%s...%s", pSeqRle->rleString, &(pSeqRle->rleString[pSeqRle->length - 8]));
-            pSeqRle->rleString[8] = ch;
-        } else {
-            tmpSeq = stString_copy(pSeqRle->rleString);
-        }
+        char *tmpSeq = getLargeNucleotideSequenceSummary(pSeqRle->rleString);
         st_logInfo(" %s pSeq:  pSeqCropEnd:%7"PRId64", LenRLE:%7"PRId64", LenRAW:%7"PRId64", seq: %s\n",
                    logIdentifier, pSeqCropEnd, pSeqRle->length, pSeqRle->nonRleLength, tmpSeq);
         free(tmpSeq);
 
-        if (seqRle->length > 17) {
-            char ch = seqRle->rleString[8];
-            seqRle->rleString[8] = '\0';
-            tmpSeq = stString_print("%s...%s", seqRle->rleString, &(seqRle->rleString[seqRle->length - 8]));
-            seqRle->rleString[8] = ch;
-        } else {
-            tmpSeq = stString_copy(seqRle->rleString);
-        }
+        tmpSeq = getLargeNucleotideSequenceSummary(seqRle->rleString);
         st_logInfo(" %s  seq: seqCropStart:%7"PRId64", LenRLE:%7"PRId64", LenRAW:%7"PRId64", seq: %s\n",
                    logIdentifier, seqCropStart, seqRle->length, seqRle->nonRleLength, tmpSeq);
         free(tmpSeq);
@@ -574,6 +589,17 @@ void chunkToStitch_trimAdjacentChunks2(char **pSeq, char **seq,
     rleString_destruct(pSeqRleCropped);
     rleString_destruct(seqRle);
     rleString_destruct(seqRleCropped);
+
+    return overlapMatchWeight;
+}
+
+char *getRunOfNs(int64_t length) {
+    char *runOfNs = st_calloc(length + 1, sizeof(char));
+    for (int i = 0; i < length; i++) {
+        runOfNs[i] = 'N';
+    }
+    runOfNs[length]= '\0';
+    return runOfNs;
 }
 
 void chunkToStitch_trimAdjacentChunks(ChunkToStitch *pChunk, ChunkToStitch *chunk, Params *params,
@@ -584,20 +610,57 @@ void chunkToStitch_trimAdjacentChunks(ChunkToStitch *pChunk, ChunkToStitch *chun
      */
     // Checks that they are part of the same sequence
     assert(stString_eq(pChunk->seqName, chunk->seqName));
+    char *logIdentifier = getLogIdentifier();
 
     // Trim haplotype 1 sequences
-    chunkToStitch_trimAdjacentChunks2(&pChunk->seqHap1, &chunk->seqHap1,
-                                      pChunk->poaHap1StringsLines, chunk->poaHap1StringsLines,
-                                      pChunk->repeatCountLinesHap1, chunk->repeatCountLinesHap1,
-                                      params, lengthOfSequenceOutputSoFarHap1);
+    int64_t trimResult = chunkToStitch_trimAdjacentChunks2(&pChunk->seqHap1, &chunk->seqHap1,
+                                                          pChunk->poaHap1StringsLines, chunk->poaHap1StringsLines,
+                                                          pChunk->repeatCountLinesHap1, chunk->repeatCountLinesHap1,
+                                                          params, lengthOfSequenceOutputSoFarHap1);
+    bool trimSuccess = trimResult >= 0;
 
     // Trim haplotype 2 sequences, if it exists
     if (chunk->seqHap2 != NULL) {
-        chunkToStitch_trimAdjacentChunks2(&pChunk->seqHap2, &chunk->seqHap2,
-                                          pChunk->poaHap2StringsLines, chunk->poaHap2StringsLines,
-                                          pChunk->repeatCountLinesHap2, chunk->repeatCountLinesHap2,
-                                          params, lengthOfSequenceOutputSoFarHap2);
+        int64_t trimResult2 = chunkToStitch_trimAdjacentChunks2(&pChunk->seqHap2, &chunk->seqHap2,
+                                                          pChunk->poaHap2StringsLines, chunk->poaHap2StringsLines,
+                                                          pChunk->repeatCountLinesHap2, chunk->repeatCountLinesHap2,
+                                                          params, lengthOfSequenceOutputSoFarHap2);
+
+        // handle error case
+        bool trimSuccess2 = trimResult2 >= 0;
+        if (trimSuccess ^ trimSuccess2) {
+            // strange error: one failed and once succeeded
+            st_logCritical(" %s In trimAdjacentChunks for pChunk %"PRId64" and chunk %"PRId64", had hap1 %s and hap2 %s.\n",
+                    logIdentifier, pChunk->chunkOrdinal, chunk->chunkOrdinal, trimSuccess ? "succeed" : "fail",
+                    trimSuccess2 ? "succeed" : "fail");
+
+        } else if (!trimSuccess && !trimSuccess2) {
+            // general failure
+            st_logCritical(" %s In trimAdjacentChunks, diploid stitching failed for pChunk %"PRId64" and chunk %"PRId64".  Inserting Ns\n",
+                           logIdentifier, pChunk->chunkOrdinal, chunk->chunkOrdinal);
+
+            // we handle errors by inserting chunkBoundary Ns
+            char *ns = getRunOfNs(params->polishParams->chunkBoundary);
+            char *tmp = stString_print("%s%s", pChunk->seqHap1, ns);
+            free(pChunk->seqHap1);
+            pChunk->seqHap1 = tmp;
+            tmp = stString_print("%s%s", pChunk->seqHap2, ns);
+            free(pChunk->seqHap2);
+            pChunk->seqHap2 = tmp;
+            free(ns);
+        }
+    } else if (!trimSuccess) {
+        // error case for single hap
+        st_logCritical(" %s In trimAdjacentChunks, stitching failed for pChunk %"PRId64" and chunk %"PRId64".  Inserting Ns\n",
+                       logIdentifier, pChunk->chunkOrdinal, chunk->chunkOrdinal);
+        char *ns = getRunOfNs(params->polishParams->chunkBoundary);
+        char *tmp = stString_print("%s%s", pChunk->seqHap1, ns);
+        free(pChunk->seqHap1);
+        pChunk->seqHap1 = tmp;
+        free(ns);
     }
+
+    free(logIdentifier);
 }
 
 /*
@@ -1272,9 +1335,9 @@ void outputChunkers_stitchLinear(OutputChunkers *outputChunkers, bool phased) {
 void updateStitchingChunk(ChunkToStitch *stitched, ChunkToStitch *pChunk, stList *hap1Seqs, stList *hap2Seqs,
                           bool phased, bool trackPoa, bool trackRepeatCounts) {
 
-    // for very fast case where we don't write fasta out
+    // for very fast case where we don't write fasta out, sanity check error  (this should never happen)
     if (hap1Seqs == NULL && hap2Seqs == NULL) {
-        return;
+        st_errAbort(" %s Encountered null sequences when updating stitching chunks!", getLogIdentifier());
     }
 
     stList_append(hap1Seqs, stString_copy(pChunk->seqHap1));
@@ -1329,7 +1392,7 @@ ChunkToStitch *mergeContigChunkz(ChunkToStitch **chunks, int64_t startIdx, int64
     bool trackSequence = pChunk->seqHap1 != NULL;
     bool trackRepeatCounts = pChunk->repeatCountLinesHap1 != NULL;
     bool trackPoa = pChunk->poaHap1StringsLines != NULL;
-    ChunkToStitch *stitched = chunkToStitch_construct(NULL, -1, phased, trackRepeatCounts, trackPoa);
+    ChunkToStitch *stitched = chunkToStitch_construct(NULL, -1 * pChunk->chunkOrdinal, phased, trackRepeatCounts, trackPoa);
 
     // Lists to keep track of haplotype strings
     stList *hap1Seqs = (trackSequence ? stList_construct3(0, free) : NULL);
@@ -1352,12 +1415,15 @@ ChunkToStitch *mergeContigChunkz(ChunkToStitch **chunks, int64_t startIdx, int64
             chunkToStitch_phaseAdjacentChunks(chunk, hap1Reads, hap2Reads);
         }
 
-        // Trim the overlap between chunks
-        chunkToStitch_trimAdjacentChunks(pChunk, chunk, params,
-                                         &lengthOfSequenceOutputSoFarHap1, &lengthOfSequenceOutputSoFarHap2);
+        // handles the case where we're not tracking sequences (for very fast)
+        if (trackSequence) {
+            // Trim the overlap between chunks
+            chunkToStitch_trimAdjacentChunks(pChunk, chunk, params,
+                                             &lengthOfSequenceOutputSoFarHap1, &lengthOfSequenceOutputSoFarHap2);
 
-        // Save to stitched
-        updateStitchingChunk(stitched, pChunk, hap1Seqs, hap2Seqs, phased, trackPoa, trackRepeatCounts);
+            // Save to stitched
+            updateStitchingChunk(stitched, pChunk, hap1Seqs, hap2Seqs, phased, trackPoa, trackRepeatCounts);
+        }
 
         // cleanup
         chunkToStitch_destruct(pChunk);
@@ -1367,7 +1433,8 @@ ChunkToStitch *mergeContigChunkz(ChunkToStitch **chunks, int64_t startIdx, int64
     }
 
     // save the last chunk and the read phasing
-    updateStitchingChunk(stitched, pChunk, hap1Seqs, hap2Seqs, phased, trackPoa, trackRepeatCounts);
+
+    if (trackSequence) updateStitchingChunk(stitched, pChunk, hap1Seqs, hap2Seqs, phased, trackPoa, trackRepeatCounts);
     stitched->seqHap1 = trackSequence ? stString_join2("", hap1Seqs) : NULL;
     if (phased) {
         stitched->seqHap2 = trackSequence ? stString_join2("", hap2Seqs) : NULL;
