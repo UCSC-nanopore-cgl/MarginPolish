@@ -405,12 +405,24 @@ char *getLargeNucleotideSequenceSummary(char *sequence) {
 int64_t removeOverlap(char *prefixString, int64_t prefixStringLength, char *suffixString, int64_t suffixStringLength,
                       int64_t approxOverlap, PolishParams *polishParams,
                       int64_t *prefixStringCropEnd, int64_t *suffixStringCropStart) {
+    // setup
     char *logIdentifier = getLogIdentifier();
+
     // Align the overlapping suffix of the prefixString and the prefix of the suffix string
 
     // Get coordinates of substrings to be aligned
     int64_t i = (prefixStringLength - approxOverlap) < 0 ? 0 : prefixStringLength - approxOverlap;
     int64_t j = approxOverlap < suffixStringLength ? approxOverlap : suffixStringLength;
+
+    // calcluate if both sequences are bookended by Ns
+    bool pSeqNs = prefixString[i] == 'N' && prefixString[strlen(prefixString) - 1] == 'N';
+    bool sSeqNs = suffixString[0] == 'N' && suffixString[j-1] == 'N';
+    if (pSeqNs && sSeqNs) {
+        st_logInfo(" %s Both prefix and suffix overlap sequences are flanked by Ns, not attempting to align\n",
+                logIdentifier);
+        free(logIdentifier);
+        return -1;
+    }
 
     // Crop suffix
     char c = suffixString[j];
@@ -427,23 +439,20 @@ int64_t removeOverlap(char *prefixString, int64_t prefixStringLength, char *suff
     stList *anchorPairs = getKmerAlignmentAnchors(sX, sY, (uint64_t) polishParams->p->diagonalExpansion);
     stList *alignedPairs = NULL;
 
-    //TODO if both strings are full of N's and we are not using RLE, something in the anchor/alignment breaks
+    // failure case for anchoring, 0 or 1 anchors
     if (stList_length(anchorPairs) < 2) {
-        bool pSeqNs = prefixString[i] == 'N' && prefixString[strlen(prefixString) - 1] == 'N';
-        bool sSeqNs = suffixString[0] == 'N' && suffixString[j-1] == 'N';
         st_logInfo(" %s Anchoring for overlap alignment (lengths p:%"PRId64", s:%"PRId64") failed for having %"PRId64" "
-                   "entries, N-flanked prefix: %s, suffix: %s\n",
-                logIdentifier, sX.length, sY.length, stList_length(anchorPairs), pSeqNs ? "TRUE" : "FALSE",
-                sSeqNs ? "TRUE" : "FALSE");
+                   "entries\n", logIdentifier, sX.length, sY.length, stList_length(anchorPairs));
 
         // Do not attempt alignment
         alignedPairs = stList_construct();
-        // TODO here we could save an align point in the middle of the overlap, but need to be careful about RLs
+        // TODO here we could save an align point in the middle of the overlap?
+        //  would need to be careful about .5 overlap boundary being unaligned given run length changes
     } else {
         // Anchoring worked: run the alignment
         alignedPairs = getAlignedPairsUsingAnchors(sM, sX, sY, anchorPairs, polishParams->p, 1, 1);
         st_logInfo(" %s Got %"PRId64" anchor pairs and %"PRId64" aligned pairs while removing overlap for sequences of "
-                                                                                 "length x:%"PRId64", y:%"PRId64"\n",
+                                                                                 "length p:%"PRId64", s:%"PRId64"\n",
                    logIdentifier, stList_length(anchorPairs), stList_length(alignedPairs), sX.length, sY.length);
     }
 
@@ -452,15 +461,6 @@ int64_t removeOverlap(char *prefixString, int64_t prefixStringLength, char *suff
     symbolString_destruct(sY);
     stateMachine_destruct(sM);
     stList_destruct(anchorPairs);
-
-    if (stList_length(alignedPairs) == 0 && st_getLogLevel() >= info) {
-        char *pSeqSummary = getLargeNucleotideSequenceSummary(&(prefixString[i]));
-        char *sSeqSummary = getLargeNucleotideSequenceSummary(suffixString);
-        st_logInfo(" %s Failed to find good overlap. Prefix-string: %s\n", logIdentifier, pSeqSummary);
-        st_logInfo(" %s Failed to find good overlap. Suffix-string: %s\n", logIdentifier, sSeqSummary);
-        free(pSeqSummary);
-        free(sSeqSummary);
-    }
 
     // Remove the suffix crop
     suffixString[j] = c;
@@ -475,18 +475,26 @@ int64_t removeOverlap(char *prefixString, int64_t prefixStringLength, char *suff
             maxPair = aPair;
         }
     }
+
     if (maxPair == NULL) {
-        st_logCritical(" %s Failed to find any aligned pairs between overlapping strings, not "
-                       "doing any trimming (approx overlap: %i, len x: %i, len y: %i)\n", logIdentifier, approxOverlap,
-                       prefixStringLength, suffixStringLength);
+        // failed to find median point, loggit
+        if (st_getLogLevel() >= info) {
+            char *pSeqSummary = getLargeNucleotideSequenceSummary(&(prefixString[i]));
+            char *sSeqSummary = getLargeNucleotideSequenceSummary(suffixString);
+            st_logInfo(" %s Failed to find any aligned pairs between overlapping strings (prefix:%s, suffix:%s), not "
+                       "doing any trimming (approx overlap: %i, total lengths: prefix %i, suffix %i)\n",
+                       logIdentifier, pSeqSummary, sSeqSummary, approxOverlap, prefixStringLength, suffixStringLength);
+            free(pSeqSummary);
+            free(sSeqSummary);
+        }
         *prefixStringCropEnd = prefixStringLength;
         *suffixStringCropStart = 0;
     } else {
-        *prefixStringCropEnd = stIntTuple_get(maxPair, 1) + i; // Exclusive
-        *suffixStringCropStart = stIntTuple_get(maxPair, 2);  // Inclusive
         st_logInfo(" %s Selecting best aligned pair at index %"PRId64" with pos p:%"PRId64"+%"PRId64", s:%"PRId64" with weight %"PRId64"\n",
                 logIdentifier, maxPairIdx, stIntTuple_get(maxPair, 1), i, stIntTuple_get(maxPair, 2),
                 stIntTuple_get(maxPair, 0));
+        *prefixStringCropEnd = stIntTuple_get(maxPair, 1) + i; // Exclusive
+        *suffixStringCropStart = stIntTuple_get(maxPair, 2);  // Inclusive
     }
 
     int64_t overlapWeight = maxPair == NULL ? -1 : stIntTuple_get(maxPair, 0);
@@ -572,14 +580,14 @@ int64_t chunkToStitch_trimAdjacentChunks2(char **pSeq, char **seq,
 
     // debug logging
     if (st_getLogLevel() >= info) {
-        char *tmpSeq = getLargeNucleotideSequenceSummary(*pSeq);
-        st_logInfo(" %s pSeq TRIMMED: LenRAW:%7"PRId64", seq: %s\n",
-                   logIdentifier, strlen(*pSeq), tmpSeq);
+        char *tmpSeq = getLargeNucleotideSequenceSummary(pSeqRleCropped->rleString);
+        st_logInfo(" %s pSeq TRIMMED:               LenRLE:%7"PRId64", LenRAW:%7"PRId64", seq: %s\n",
+                   logIdentifier, pSeqRleCropped->length, pSeqRleCropped->nonRleLength, tmpSeq);
         free(tmpSeq);
 
-        tmpSeq = getLargeNucleotideSequenceSummary(*seq);
-        st_logInfo(" %s  seq TRIMMED: LenRAW:%7"PRId64", seq: %s\n",
-                   logIdentifier, strlen(*seq), tmpSeq);
+        tmpSeq = getLargeNucleotideSequenceSummary(seqRleCropped->rleString);
+        st_logInfo(" %s  seq TRIMMED:               LenRLE:%7"PRId64", LenRAW:%7"PRId64", seq: %s\n",
+                   logIdentifier, seqRleCropped->length, seqRleCropped->nonRleLength, tmpSeq);
         free(tmpSeq);
     }
 
@@ -1358,7 +1366,10 @@ void convertReadPartitionToLines(stHash *readsInHap, stList *readPartitionLines)
 
 ChunkToStitch *mergeContigChunkz(ChunkToStitch **chunks, int64_t startIdx, int64_t endIdxExclusive, bool phased,
         Params *params) {
-    // sanity check
+    // for logging
+    char *logIdentifier = getLogIdentifier();
+    time_t stitchStart = time(NULL);
+    st_logInfo(">%s Stitching chunks from index [%"PRId64" to %"PRId64")\n", logIdentifier, startIdx, endIdxExclusive);
 
     // Get the first chunk
     ChunkToStitch *pChunk = chunks[startIdx];
@@ -1389,6 +1400,8 @@ ChunkToStitch *mergeContigChunkz(ChunkToStitch **chunks, int64_t startIdx, int64
     for (int64_t chunkIndex = startIdx + 1; chunkIndex < endIdxExclusive; chunkIndex++) {
         assert(pChunk != NULL);
         chunk = chunks[chunkIndex];
+        st_logInfo(">%s Stitching chunk %"PRId64" and %"PRId64"\n", logIdentifier,
+                pChunk->chunkOrdinal, chunk->chunkOrdinal);
 
         // If phased, ensure the chunks phasing is consistent
         if (phased) {
@@ -1414,7 +1427,9 @@ ChunkToStitch *mergeContigChunkz(ChunkToStitch **chunks, int64_t startIdx, int64
 
     // save the last chunk and the read phasing
 
-    if (trackSequence) updateStitchingChunk(stitched, pChunk, hap1Seqs, hap2Seqs, phased, trackPoa, trackRepeatCounts);
+    if (trackSequence) {
+        updateStitchingChunk(stitched, pChunk, hap1Seqs, hap2Seqs, phased, trackPoa, trackRepeatCounts);
+    }
     stitched->seqHap1 = trackSequence ? stString_join2("", hap1Seqs) : NULL;
     if (phased) {
         stitched->seqHap2 = trackSequence ? stString_join2("", hap2Seqs) : NULL;
@@ -1431,6 +1446,11 @@ ChunkToStitch *mergeContigChunkz(ChunkToStitch **chunks, int64_t startIdx, int64
         stHash_destruct(hap1Reads);
         stHash_destruct(hap2Reads);
     }
+
+    // loggit
+    st_logInfo(" %s Finished stitching %"PRId64" chunks in %ds\n", logIdentifier, endIdxExclusive - startIdx,
+            (int) time(NULL) - stitchStart);
+    free(logIdentifier);
 
     // fin
     return stitched;
