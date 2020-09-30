@@ -61,7 +61,7 @@ stHash *parseReferenceSequences(char *referenceFastaFile) {
 char *getFileBase(char *base, char *defawlt) {
     struct stat fileStat;
     int64_t rc = stat(base, &fileStat);
-    if (S_ISDIR(fileStat.st_mode)) {
+    if (access( base, F_OK ) != -1  && S_ISDIR(fileStat.st_mode)) {
         if (optarg[strlen(base) - 1] == '/') optarg[strlen(base) - 1] = '\0';
         return stString_print("%s/%s", base, defawlt);
     } else {

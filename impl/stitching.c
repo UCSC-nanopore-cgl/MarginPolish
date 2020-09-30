@@ -438,6 +438,7 @@ int64_t removeOverlap(char *prefixString, int64_t prefixStringLength, char *suff
 
         // Do not attempt alignment
         alignedPairs = stList_construct();
+        // TODO here we could save an align point in the middle of the overlap, but need to be careful about RLs
     } else {
         // Anchoring worked: run the alignment
         alignedPairs = getAlignedPairsUsingAnchors(sM, sX, sY, anchorPairs, polishParams->p, 1, 1);
@@ -569,6 +570,19 @@ int64_t chunkToStitch_trimAdjacentChunks2(char **pSeq, char **seq,
     int64_t suffixRleTrimLength = pSeqRle->length - pSeqCropEnd;
     *lengthOfSequenceOutputSoFar += pSeqCropEnd;
 
+    // debug logging
+    if (st_getLogLevel() >= info) {
+        char *tmpSeq = getLargeNucleotideSequenceSummary(*pSeq);
+        st_logInfo(" %s pSeq TRIMMED: LenRAW:%7"PRId64", seq: %s\n",
+                   logIdentifier, strlen(*pSeq), tmpSeq);
+        free(tmpSeq);
+
+        tmpSeq = getLargeNucleotideSequenceSummary(*seq);
+        st_logInfo(" %s  seq TRIMMED: LenRAW:%7"PRId64", seq: %s\n",
+                   logIdentifier, strlen(*seq), tmpSeq);
+        free(tmpSeq);
+    }
+
     // Poa
     if (poa != NULL) {
         stList_removeInterval(pPoa, stList_length(pPoa) - suffixRleTrimLength, suffixRleTrimLength);
@@ -613,51 +627,17 @@ void chunkToStitch_trimAdjacentChunks(ChunkToStitch *pChunk, ChunkToStitch *chun
     char *logIdentifier = getLogIdentifier();
 
     // Trim haplotype 1 sequences
-    int64_t trimResult = chunkToStitch_trimAdjacentChunks2(&pChunk->seqHap1, &chunk->seqHap1,
+    chunkToStitch_trimAdjacentChunks2(&pChunk->seqHap1, &chunk->seqHap1,
                                                           pChunk->poaHap1StringsLines, chunk->poaHap1StringsLines,
                                                           pChunk->repeatCountLinesHap1, chunk->repeatCountLinesHap1,
                                                           params, lengthOfSequenceOutputSoFarHap1);
-    bool trimSuccess = trimResult >= 0;
 
     // Trim haplotype 2 sequences, if it exists
     if (chunk->seqHap2 != NULL) {
-        int64_t trimResult2 = chunkToStitch_trimAdjacentChunks2(&pChunk->seqHap2, &chunk->seqHap2,
+        chunkToStitch_trimAdjacentChunks2(&pChunk->seqHap2, &chunk->seqHap2,
                                                           pChunk->poaHap2StringsLines, chunk->poaHap2StringsLines,
                                                           pChunk->repeatCountLinesHap2, chunk->repeatCountLinesHap2,
                                                           params, lengthOfSequenceOutputSoFarHap2);
-
-        // handle error case
-        bool trimSuccess2 = trimResult2 >= 0;
-        if (trimSuccess ^ trimSuccess2) {
-            // strange error: one failed and once succeeded
-            st_logCritical(" %s In trimAdjacentChunks for pChunk %"PRId64" and chunk %"PRId64", had hap1 %s and hap2 %s.\n",
-                    logIdentifier, pChunk->chunkOrdinal, chunk->chunkOrdinal, trimSuccess ? "succeed" : "fail",
-                    trimSuccess2 ? "succeed" : "fail");
-
-        } else if (!trimSuccess && !trimSuccess2) {
-            // general failure
-            st_logCritical(" %s In trimAdjacentChunks, diploid stitching failed for pChunk %"PRId64" and chunk %"PRId64".  Inserting Ns\n",
-                           logIdentifier, pChunk->chunkOrdinal, chunk->chunkOrdinal);
-
-            // we handle errors by inserting chunkBoundary Ns
-            char *ns = getRunOfNs(params->polishParams->chunkBoundary);
-            char *tmp = stString_print("%s%s", pChunk->seqHap1, ns);
-            free(pChunk->seqHap1);
-            pChunk->seqHap1 = tmp;
-            tmp = stString_print("%s%s", pChunk->seqHap2, ns);
-            free(pChunk->seqHap2);
-            pChunk->seqHap2 = tmp;
-            free(ns);
-        }
-    } else if (!trimSuccess) {
-        // error case for single hap
-        st_logCritical(" %s In trimAdjacentChunks, stitching failed for pChunk %"PRId64" and chunk %"PRId64".  Inserting Ns\n",
-                       logIdentifier, pChunk->chunkOrdinal, chunk->chunkOrdinal);
-        char *ns = getRunOfNs(params->polishParams->chunkBoundary);
-        char *tmp = stString_print("%s%s", pChunk->seqHap1, ns);
-        free(pChunk->seqHap1);
-        pChunk->seqHap1 = tmp;
-        free(ns);
     }
 
     free(logIdentifier);
