@@ -421,6 +421,8 @@ int64_t removeOverlap(char *prefixString, int64_t prefixStringLength, char *suff
         st_logInfo(" %s Both prefix and suffix overlap sequences are flanked by Ns, not attempting to align\n",
                 logIdentifier);
         free(logIdentifier);
+        *prefixStringCropEnd = prefixStringLength;
+        *suffixStringCropStart = 0;
         return -1;
     }
 
