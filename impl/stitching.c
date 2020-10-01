@@ -338,7 +338,7 @@ int64_t sizeOfIntersectionWithNonNegativeValues(stHash *pSet, stHash *nSet) {
     return i;
 }
 
-void chunkToStitch_phaseAdjacentChunks(ChunkToStitch *chunk, stHash *readsInHap1, stHash *readsInHap2) {
+void chunkToStitch_phaseAdjacentChunks(ChunkToStitch *chunk, stHash *readsInHap1, stHash *readsInHap2, Params *params ) {
     /*
      * Phases chunk so that hap1 in chunk corresponds to hap1 in the prior chunks (as best as we can tell).
      */
@@ -348,10 +348,14 @@ void chunkToStitch_phaseAdjacentChunks(ChunkToStitch *chunk, stHash *readsInHap1
     stHash *chunkHap2Reads = getReadNames(chunk->readsHap2Lines);
 
     // Calculate the intersection between reads shared between the chunks
-    int64_t i = sizeOfIntersectionWithNonNegativeValues(readsInHap1, chunkHap1Reads);
-    int64_t j = sizeOfIntersectionWithNonNegativeValues(readsInHap1, chunkHap2Reads);
-    int64_t k = sizeOfIntersectionWithNonNegativeValues(readsInHap2, chunkHap1Reads);
-    int64_t l = sizeOfIntersectionWithNonNegativeValues(readsInHap2, chunkHap2Reads);
+    int64_t i = params->phaseParams->stitchWithPrimaryReadsOnly ?
+            sizeOfIntersectionWithNonNegativeValues(readsInHap1, chunkHap1Reads) : sizeOfIntersection(readsInHap1, chunkHap1Reads);
+    int64_t j = params->phaseParams->stitchWithPrimaryReadsOnly ?
+            sizeOfIntersectionWithNonNegativeValues(readsInHap1, chunkHap2Reads) : sizeOfIntersection(readsInHap1, chunkHap2Reads);
+    int64_t k = params->phaseParams->stitchWithPrimaryReadsOnly ?
+            sizeOfIntersectionWithNonNegativeValues(readsInHap2, chunkHap1Reads) : sizeOfIntersection(readsInHap2, chunkHap1Reads);
+    int64_t l = params->phaseParams->stitchWithPrimaryReadsOnly ?
+            sizeOfIntersectionWithNonNegativeValues(readsInHap2, chunkHap2Reads) : sizeOfIntersection(readsInHap2, chunkHap2Reads);
 
     // Calculate support for the cis (keeping the current relative phasing) and the trans (switching the phasing) configurations
     int64_t cisPhase = i + l; // Number of reads consistently phased in cis configuration
@@ -1235,7 +1239,7 @@ void writeReadPartition(stHash *readsInHap, FILE *fh) {
     stHash_destructIterator(it);
 }
 
-void outputChunkers_stitchLinear(OutputChunkers *outputChunkers, bool phased) {
+void outputChunkers_stitchLinear(OutputChunkers *outputChunkers, bool phased, Params *params) {
     /*
      * Stitch together the outputs using a single thread, but very minimal memory.
      */
@@ -1275,7 +1279,7 @@ void outputChunkers_stitchLinear(OutputChunkers *outputChunkers, bool phased) {
 
         // If phased, ensure the chunks phasing is consistent
         if (phased) {
-            chunkToStitch_phaseAdjacentChunks(chunk, hap1Reads, hap2Reads);
+            chunkToStitch_phaseAdjacentChunks(chunk, hap1Reads, hap2Reads, params);
         }
 
         // Set the flag determining if this is the start of a new sequence
@@ -1407,7 +1411,7 @@ ChunkToStitch *mergeContigChunkz(ChunkToStitch **chunks, int64_t startIdx, int64
 
         // If phased, ensure the chunks phasing is consistent
         if (phased) {
-            chunkToStitch_phaseAdjacentChunks(chunk, hap1Reads, hap2Reads);
+            chunkToStitch_phaseAdjacentChunks(chunk, hap1Reads, hap2Reads, params);
         }
 
         // handles the case where we're not tracking sequences (for very fast)

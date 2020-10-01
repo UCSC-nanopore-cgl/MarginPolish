@@ -29,6 +29,7 @@ stRPHmmParameters *stRPHmmParameters_construct() {
     params->includeInvertedPartitions = true;
     params->includeAncestorSubProb = true;
     params->minPhredScoreForHaplotypePartition = 0;
+    params->stitchWithPrimaryReadsOnly = TRUE;
 
     // bubble parameters
     params->includeHomozygousVCFEntries = FALSE;
@@ -58,6 +59,7 @@ stRPHmmParameters *stRPHmmParameters_copy(stRPHmmParameters *toCopy) {
     params->includeInvertedPartitions = toCopy->includeInvertedPartitions;
     params->includeAncestorSubProb = toCopy->includeAncestorSubProb;
     params->minPhredScoreForHaplotypePartition = toCopy->minPhredScoreForHaplotypePartition;
+    params->stitchWithPrimaryReadsOnly = toCopy->stitchWithPrimaryReadsOnly;
 
     // bubble parameters
     params->includeHomozygousVCFEntries = toCopy->includeHomozygousVCFEntries;
@@ -99,6 +101,8 @@ void stRPHmmParameters_parseParametersFromJson(stRPHmmParameters *params, char *
             params->roundsOfIterativeRefinement = stJson_parseInt(js, tokens, ++i);
         } else if (strcmp(keyString, "minPhredScoreForHaplotypePartition") == 0) {
             params->minPhredScoreForHaplotypePartition = stJson_parseInt(js, tokens, ++i);
+        } else if (strcmp(keyString, "stitchWithPrimaryReadsOnly") == 0) {
+            params->stitchWithPrimaryReadsOnly = stJson_parseBool(js, tokens, ++i);
         } else if (strcmp(keyString, "includeHomozygousVCFEntries") == 0) {
             params->includeHomozygousVCFEntries = stJson_parseBool(js, tokens, ++i);
         } else if (strcmp(keyString, "onlyUsePassVCFEntries") == 0) {

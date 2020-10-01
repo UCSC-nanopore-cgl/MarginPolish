@@ -790,6 +790,12 @@ void getPosteriorProbsWithBanding(StateMachine *sM, stList *anchorPairs, const S
                                                                                          forwardDpMatrix,
                                                                                          backwardDpMatrix, sX, sY);
                         if (totalPosteriorCalculationsThisTraceback != 1) {
+                            if (totalProbability + 1.0 <= newTotalProbability || newTotalProbability + 1.0 <= newTotalProbability) {
+                                char *logIdentifier = getLogIdentifier();
+                                st_logInfo(" %s Error calculating newTotalProbability: totalProbability:%f, totalNewProbability:%f",
+                                        logIdentifier, totalProbability, newTotalProbability);
+                                free(logIdentifier);
+                            }
                             assert(totalProbability + 1.0 > newTotalProbability);
                             assert(newTotalProbability + 1.0 > newTotalProbability);
                         }

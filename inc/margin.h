@@ -271,6 +271,9 @@ struct _stRPHmmParameters {
 	// should we include all vcf entries, or just ["PASS", "pass", "."]
 	bool onlyUsePassVCFEntries;
 
+	// should we stitch with primary reads or all reads (including filtering via downsampling or other means)
+	bool stitchWithPrimaryReadsOnly;
+
 	// Number of iterations to search for bubbles (and remove bubbles with strand or read split below some threshold)
 	int64_t bubbleFindingIterations;
 
@@ -1347,7 +1350,7 @@ void outputChunkers_stitch(OutputChunkers *outputChunkers, bool phased, int64_t 
 void outputChunkers_stitchAndTrackReadIds(OutputChunkers *outputChunkers, bool phased, int64_t chunkCount,
 										  stList *readIdsHap1, stList *readIdsHap2);
 
-		void outputChunkers_stitchLinear(OutputChunkers *outputChunkers, bool phased);
+void outputChunkers_stitchLinear(OutputChunkers *outputChunkers, bool phased, Params *params);
 
 void outputChunkers_destruct(OutputChunkers *outputChunkers);
 
