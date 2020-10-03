@@ -529,10 +529,12 @@ void renumberCSVLines(stList *csvLines, int64_t index) {
 int64_t chunkToStitch_trimAdjacentChunks2(char **pSeq, char **seq,
                                        stList *pPoa, stList *poa, stList *pRepeatCounts, stList *repeatCounts,
                                        Params *params, int64_t *lengthOfSequenceOutputSoFar) {
+    // for logging
+    char *logIdentifier = getLogIdentifier();
 
-    // for very fast case where we don't write sequences, sanity check error case (this should be covered)
+    // for very fast case where we don't write sequences, sanity check error case (this should never happen)
     if (*pSeq == NULL && *seq == NULL) {
-        st_errAbort(" %s Encountered null sequences when stitching adjacent chunks!", getLogIdentifier());
+        st_errAbort(" %s Encountered null sequences when stitching adjacent chunks!", logIdentifier);
     }
 
     // Convert to RLE space
@@ -548,7 +550,6 @@ int64_t chunkToStitch_trimAdjacentChunks2(char **pSeq, char **seq,
                                                params->polishParams, &pSeqCropEnd, &seqCropStart);
 
     // Log
-    char *logIdentifier = getLogIdentifier();
     st_logInfo(
             " %s Removing overlap between neighbouring chunks (in RLE space). Approx overlap size: %i, "
             "overlap-match weight: %f, left-trim: %i, right-trim: %i:\n", logIdentifier,
