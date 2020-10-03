@@ -535,13 +535,13 @@ void dpMatrix_deleteDiagonal(DpMatrix *dpMatrix, int64_t xay) {
 static Symbol getXCharacter(const SymbolString sX, int64_t xay, int64_t xmy) {
     int64_t x = diagonal_getXCoordinate(xay, xmy);
     assert(x >= 0 && x <= sX.length);
-    return x > 0 && x < sX.length ? sX.sequence[x - 1] : 4; //n; TODO: this is a hack, must fix
+    return x > 0 ? sX.sequence[x - 1] : 4; //n; TODO: this is a hack, must fix
 }
 
 static Symbol getYCharacter(const SymbolString sY, int64_t xay, int64_t xmy) {
     int64_t y = diagonal_getYCoordinate(xay, xmy);
     assert(y >= 0 && y <= sY.length);
-    return y > 0 && y < sY.length ? sY.sequence[y - 1] : 4; //n; TODO: this is a hack, must fix
+    return y > 0 ? sY.sequence[y - 1] : 4; //n; TODO: this is a hack, must fix
 }
 
 static void
