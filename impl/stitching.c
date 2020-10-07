@@ -397,8 +397,9 @@ char *getLargeNucleotideSequenceSummary(char *sequence) {
     char *tmpSeq;
     if (strlen(sequence) > 17) {
         char ch = sequence[8];
+        int64_t sequenceLen = strlen(sequence);
         sequence[8] = '\0';
-        tmpSeq = stString_print("%s...%s", sequence, &(sequence[strlen(sequence) - 8]));
+        tmpSeq = stString_print("%s...%s", sequence, &(sequence[sequenceLen - 8]));
         sequence[8] = ch;
     } else {
         tmpSeq = stString_copy(sequence);
@@ -549,12 +550,19 @@ int64_t chunkToStitch_trimAdjacentChunks2(char **pSeq, char **seq,
                                                params->polishParams->chunkBoundary * 2,
                                                params->polishParams, &pSeqCropEnd, &seqCropStart);
 
-    // Log
+    // Loggit
     st_logInfo(
             " %s Removing overlap between neighbouring chunks (in RLE space). Approx overlap size: %i, "
             "overlap-match weight: %f, left-trim: %i, right-trim: %i:\n", logIdentifier,
             (int) params->polishParams->chunkBoundary * 2,
             (float) overlapMatchWeight / PAIR_ALIGNMENT_PROB_1, pSeqRle->length - pSeqCropEnd, seqCropStart);
+
+    // sanity check
+    if (pSeqCropEnd > pSeqRle->length || seqCropStart < 0 || seqCropStart > seqRle->length) {
+        st_errAbort(" %s Got invalid crop points, expected pSeqEnd %"PRId64" <= pSeqLen %"PRId64", "
+                    "seqStart %"PRId64" >= 0, seqStart %"PRId64" <= seqLen %"PRId64"\n",
+                    pSeqCropEnd, pSeqRle->length, seqCropStart, seqCropStart, seqRle->length);
+    }
 
     // debug logging
     if (st_getLogLevel() >= info) {
