@@ -475,12 +475,25 @@ int64_t removeOverlap(char *prefixString, int64_t prefixStringLength, char *suff
     // Pick the median point
     stIntTuple *maxPair = NULL;
     int64_t maxPairIdx = -1;
+    int64_t badAlignedPairCount = 0;
     for (int64_t k = 0; k < stList_length(alignedPairs); k++) {
         stIntTuple *aPair = stList_get(alignedPairs, k);
-        if (maxPair == NULL || stIntTuple_get(aPair, 0) > stIntTuple_get(maxPair, 0)) {
+        int64_t p = stIntTuple_get(aPair, 1);
+        int64_t s = stIntTuple_get(aPair, 2);
+        if (p < 0 || s < 0 || p >= prefixStringLength - i || s >= j) {
+            if (badAlignedPairCount == 0) {
+                st_logInfo(" %s CRITICAL proposed aligned pair (p%"PRId64", s%"PRId64") outside bounds p[0,%"PRId64"), s[0,%"PRId64")\n",
+                           logIdentifier, p, s, prefixStringLength - i, j);
+            }
+            badAlignedPairCount++;
+        } else if (maxPair == NULL || stIntTuple_get(aPair, 0) > stIntTuple_get(maxPair, 0)) {
             maxPairIdx = k;
             maxPair = aPair;
         }
+    }
+    if (badAlignedPairCount > 0) {
+        st_logCritical(" %s getAlignedPairsUsingAnchors proposed %"PRId64" (of %"PRId64") pairs outside of bounds p[0,%"PRId64"), s[0,%"PRId64")\n",
+                   logIdentifier, badAlignedPairCount, stList_length(alignedPairs), prefixStringLength - i, j);
     }
 
     if (maxPair == NULL) {
