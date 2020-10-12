@@ -361,6 +361,9 @@ endif ()
 add_executable(marginPolish marginPolish.c)
 target_link_libraries(marginPolish marginLib)
 
+add_executable(marginVVcfPhase marginVVcfPhase.c)
+target_link_libraries(marginVVcfPhase marginLib)
+
 add_executable(marginBamTag tools/marginBamTag.c)
 target_link_libraries(marginBamTag marginLib)
 
