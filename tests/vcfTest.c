@@ -10,6 +10,7 @@
 
 static char* PARAMS = "../params/ont/r9.4/allParams.np.human.r94-g344.json";
 static char* VCF1 = "../tests/data/vcfTest/vcfTest1.vcf";
+static char* VCF1_GZ = "../tests/data/vcfTest/vcfTest1.vcf.gz";
 
 /*
 #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	SAMPLE
@@ -30,8 +31,8 @@ void assertVcfEntryCorrect(CuTest *testCase, VcfEntry *entry, char *ref, int64_t
     RleString *rleA2 = rle ? rleString_construct(allele2) : rleString_construct_no_rle(allele2);
     CuAssertTrue(testCase, stString_eq(ref, entry->refSeqName));
     CuAssertTrue(testCase, pos == entry->refPos);
-    CuAssertTrue(testCase, rleString_eq(rleA1, entry->allele1));
-    CuAssertTrue(testCase, rleString_eq(rleA2, entry->allele2));
+    CuAssertTrue(testCase, rleString_eq(rleA1, getVcfEntryAlleleH1(entry)));
+    CuAssertTrue(testCase, rleString_eq(rleA2, getVcfEntryAlleleH2(entry)));
     rleString_destruct(rleA1);
     rleString_destruct(rleA2);
 }
@@ -40,6 +41,7 @@ void test_vcfParseRLE(CuTest *testCase) {
     bool RLE = TRUE;
     Params *params = params_readParams(PARAMS);
     params->polishParams->useRunLengthEncoding = RLE;
+    params->phaseParams->includeHomozygousVCFEntries = FALSE;
 
     stList *vcfEntries = parseVcf(VCF1, params);
 
@@ -50,9 +52,56 @@ void test_vcfParseRLE(CuTest *testCase) {
     assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 3), "chr20", 4000, "T", "C", RLE);
     assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 4), "chr20", 5000, "GATTACA", "A", RLE);
     assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 5), "chr20", 6000, "T", "TC", RLE);
-    //assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 6), "chr20", 7000, "G", "A", TRUE); //homozygous
-    //assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 7), "chr20", 7000, "G", "A", TRUE); //homozygous
+    //assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 6), "chr20", 7000, "G", "G", RLE); //homozygous
+    //assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 7), "chr20", 7000, "A", "A", RLE); //homozygous
     assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 6), "chr20", 250000000, "A", "G", RLE);
+
+    stList_destruct(vcfEntries);
+    params_destruct(params);
+}
+
+void test_vcfParseRLEGZ(CuTest *testCase) {
+    bool RLE = TRUE;
+    Params *params = params_readParams(PARAMS);
+    params->polishParams->useRunLengthEncoding = RLE;
+    params->phaseParams->includeHomozygousVCFEntries = FALSE;
+
+    stList *vcfEntries = parseVcf(VCF1_GZ, params);
+
+    CuAssertTrue(testCase, stList_length(vcfEntries) == 7);
+    assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 0), "chr20", 1000, "G", "A", RLE);
+    assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 1), "chr20", 2000, "T", "CCC", RLE);
+    assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 2), "chr20", 3000, "C", "A", RLE);
+    assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 3), "chr20", 4000, "T", "C", RLE);
+    assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 4), "chr20", 5000, "GATTACA", "A", RLE);
+    assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 5), "chr20", 6000, "T", "TC", RLE);
+    //assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 6), "chr20", 7000, "G", "G", RLE); //homozygous
+    //assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 7), "chr20", 7000, "A", "A", RLE); //homozygous
+    assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 6), "chr20", 250000000, "A", "G", RLE);
+
+    stList_destruct(vcfEntries);
+    params_destruct(params);
+}
+
+void test_vcfParseRLESNP(CuTest *testCase) {
+    bool RLE = TRUE;
+    Params *params = params_readParams(PARAMS);
+    params->polishParams->useRunLengthEncoding = RLE;
+    params->phaseParams->includeHomozygousVCFEntries = FALSE;
+    params->phaseParams->onlyUseSNPVCFEntries = TRUE;
+
+    stList *vcfEntries = parseVcf(VCF1, params);
+
+    CuAssertTrue(testCase, stList_length(vcfEntries) == 4);
+    assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 0), "chr20", 1000, "G", "A", RLE);
+    //assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 1), "chr20", 2000, "T", "CCC", RLE); // indel
+    assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 1), "chr20", 3000, "C", "A", RLE);
+    assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 2), "chr20", 4000, "T", "C", RLE);
+    //assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 4), "chr20", 5000, "GATTACA", "A", RLE); // indel
+    //assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 5), "chr20", 6000, "T", "TC", RLE); // indel
+    //assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 6), "chr20", 7000, "G", "G", RLE); //homozygous
+    //assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 7), "chr20", 7000, "A", "A", RLE); //homozygous
+    assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 3), "chr20", 250000000, "A", "G", RLE);
 
     stList_destruct(vcfEntries);
     params_destruct(params);
@@ -85,19 +134,20 @@ void test_vcfParseRAW(CuTest *testCase) {
     bool RLE = FALSE;
     Params *params = params_readParams(PARAMS);
     params->polishParams->useRunLengthEncoding = RLE;
+    params->phaseParams->includeHomozygousVCFEntries = TRUE;
 
     stList *vcfEntries = parseVcf(VCF1, params);
 
-    CuAssertTrue(testCase, stList_length(vcfEntries) == 7);
+    CuAssertTrue(testCase, stList_length(vcfEntries) == 9);
     assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 0), "chr20", 1000, "G", "A", RLE);
     assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 1), "chr20", 2000, "T", "CCC", RLE);
     assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 2), "chr20", 3000, "C", "A", RLE);
     assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 3), "chr20", 4000, "T", "C", RLE);
     assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 4), "chr20", 5000, "GATTACA", "A", RLE);
     assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 5), "chr20", 6000, "T", "TC", RLE);
-    //assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 6), "chr20", 7000, "G", "A", TRUE); //homozygous
-    //assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 7), "chr20", 7000, "G", "A", TRUE); //homozygous
-    assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 6), "chr20", 250000000, "A", "G", RLE);
+    assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 6), "chr20", 7000, "G", "G", RLE); //homozygous
+    assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 7), "chr20", 8000, "A", "A", RLE); //homozygous
+    assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 8), "chr20", 250000000, "A", "G", RLE);
 
     stList_destruct(vcfEntries);
     params_destruct(params);
@@ -107,8 +157,10 @@ CuSuite *vcfTestSuite(void) {
     CuSuite *suite = CuSuiteNew();
 
     SUITE_ADD_TEST(suite, test_vcfParseRLE);
+    SUITE_ADD_TEST(suite, test_vcfParseRLEGZ);
     SUITE_ADD_TEST(suite, test_vcfParseRAW);
     SUITE_ADD_TEST(suite, test_vcfParseRLEHOM);
+    SUITE_ADD_TEST(suite, test_vcfParseRLESNP);
 
     return suite;
 }

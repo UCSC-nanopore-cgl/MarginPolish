@@ -81,6 +81,7 @@
           "minPhredScoreForHaplotypePartition": 10,
           "includeHomozygousVCFEntries": false,
           "onlyUsePassVCFEntries": true,
+          "onlyUseSNPVCFEntries": false,
           "stitchWithPrimaryReadsOnly": false,
           "bubbleFindingIterations": 1,
           "bubbleMinBinomialStrandLikelihood": 0.1,

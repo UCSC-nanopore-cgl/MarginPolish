@@ -4,7 +4,7 @@
 
 #include "margin.h"
 
-RleString *rleString_construct(char *str) {
+RleString * rleString_construct(char *str) {
     RleString *rleString = st_calloc(1, sizeof(RleString));
 
     rleString->nonRleLength = strlen(str);

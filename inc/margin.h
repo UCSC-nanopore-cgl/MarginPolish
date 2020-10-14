@@ -268,8 +268,11 @@ struct _stRPHmmParameters {
 	// Should homozygous variants be used during bubble finding with input VCF? (improves sequence quality, can confound phasing)
 	bool includeHomozygousVCFEntries;
 
-	// should we include all vcf entries, or just ["PASS", "pass", "."]
-	bool onlyUsePassVCFEntries;
+    // should we include all vcf entries, or just ["PASS", "pass", "."]
+    bool onlyUsePassVCFEntries;
+
+    // should we include all vcf entries, or just SNPs
+    bool onlyUseSNPVCFEntries;
 
 	// should we stitch with primary reads or all reads (including filtering via downsampling or other means)
 	bool stitchWithPrimaryReadsOnly;
@@ -1369,13 +1372,16 @@ struct _vcfEntry {
     int64_t refPos;
     int64_t rawRefPosInformativeOnly;
     double phredQuality;
-    RleString *allele1;
-    RleString *allele2;
+    stList *alleles; //refAllele is alleles[0]
+    int64_t gt1;
+    int64_t gt2;
 };
 
 VcfEntry *vcfEntry_construct(char *refSeqName, int64_t refPos, int64_t rawRefPos, double phredQuality,
-        RleString *allele1, RleString *allele2);
+        stList *alleles, int64_t gt1, int64_t gt2);
 void vcfEntry_destruct(VcfEntry *vcfEntry);
+RleString *getVcfEntryAlleleH1(VcfEntry *vcfEntry);
+RleString *getVcfEntryAlleleH2(VcfEntry *vcfEntry);
 stList *parseVcf(char *vcfFile, Params *params);
 stList *parseVcf2(char *vcfFile, char *regionStr, Params *params);
 stList *getVcfEntriesForRegion(stList *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos);

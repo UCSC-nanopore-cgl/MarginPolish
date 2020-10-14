@@ -693,8 +693,8 @@ void updateCandidateVariantPositionsByVcfEntries(bool *candidateVariantPositions
         bool isCVP = candidateVariantPositions[i];
         bool isVCF = vcfEntry != NULL && vcfEntry->refPos == i;
         if (isVCF && st_getLogLevel() == debug) {
-            char *a1 = rleString_expand(vcfEntry->allele1);
-            char *a2 = rleString_expand(vcfEntry->allele1);
+            char *a1 = rleString_expand(stList_get(vcfEntry->alleles, vcfEntry->gt1));
+            char *a2 = rleString_expand(stList_get(vcfEntry->alleles, vcfEntry->gt2));
             st_logDebug(" %s  Variant at %s:%"PRId64" (%"PRId64") with quality %5.3f and alleles %s, %s is %s\n",
                     logIdentifier, vcfEntry->refSeqName, vcfEntry->refPos, vcfEntry->rawRefPosInformativeOnly,
                     vcfEntry->phredQuality, a1, a2, isCVP ? "TP" : "FN");
