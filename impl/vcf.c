@@ -214,50 +214,47 @@ stList *getVcfEntriesForRegion(stList *vcfEntries, uint64_t *rleMap, char *refSe
 }
 
 
+stList *getAlleleSubstrings2(VcfEntry *entry, char *referenceSeq, int64_t refSeqLen, int64_t expansion,
+                             bool useRunLengthEncoding) {
+    stList *substrings = stList_construct3(0, (void (*)(void*)) rleString_destruct);
+    assert(stList_length(entry->alleles) >= 1);
 
-void read_vcf(char *fname)
-{
-	//open vcf file
-    htsFile *fp    = hts_open(fname,"rb");
+    // parameters for substringing
+    int64_t pos = entry->refPos;
 
-    //read header
-    bcf_hdr_t *hdr = bcf_hdr_read(fp);
+    //get ref info
+    char *refAllele = rleString_expand(stList_get(entry->alleles, 0));
+    int64_t refAlleleLen = strlen(refAllele);
+    for (int64_t i = 0; i < refAlleleLen; i++) {
+        assert(referenceSeq[pos + i] == refAllele[i]);
+    }
+    free(refAllele);
 
-    bcf1_t *rec    = bcf_init();
+    // get prefix and suffix strings (from ref seq)
+    int64_t pStart = pos - expansion;
+    int64_t sStart = pos + refAlleleLen;
+    char *prefix = stString_getSubString(referenceSeq, pStart < 0 ? 0 : pStart, pStart < 0 ? pos : expansion);
+    char *suffix = stString_getSubString(referenceSeq, sStart, sStart + expansion >= refSeqLen ? refSeqLen - sStart : expansion);
 
-    //save for each vcf record
-    while ( bcf_read(fp, hdr, rec)>=0 )
-    {
-    	//unpack for read REF,ALT,INFO,etc
-        bcf_unpack(rec, BCF_UN_STR);
-        bcf_unpack(rec, BCF_UN_INFO);
-
-        //read CHROM
-        printf("%s\n", bcf_hdr_id2name(hdr, rec->rid));
-
-        //read POS
-        printf("%lu\n", (unsigned long)rec->pos);
-
-        //read ID(rsid)
-        printf("%s\n", rec->d.id);
-
-        //rec->d.allele[0] is REF other is ALT
-        printf("%lu\n", (unsigned long)rec->n_allele);
-        for (int i=0; i<rec->n_allele; ++i)
-            printf("%s\n", rec->d.allele[i]);
-
-        //check if is snp
-        printf("ttt %d\n", bcf_is_snp(rec));
+    // get alleles
+    for (int64_t i = 0; i < stList_length(entry->alleles); i++) {
+        char *expandedAllele = rleString_expand(stList_get(entry->alleles, i));
+        char *fullAlleleSubstring = stString_print("%s%s%s", prefix, expandedAllele, suffix);
+        stList_append(substrings,
+                useRunLengthEncoding ?
+                rleString_construct(fullAlleleSubstring) :
+                rleString_construct_no_rle(fullAlleleSubstring));
+        free(expandedAllele);
+        free(fullAlleleSubstring);
     }
 
+    return substrings;
+}
 
-
-    bcf_destroy(rec);
-    bcf_hdr_destroy(hdr);
-    int ret;
-    if ( (ret=hts_close(fp)) )
-    {
-        fprintf(stderr,"hts_close(%s): non-zero status %d\n",fname,ret);
-        exit(ret);
-    }
+stList *getAlleleSubstrings(VcfEntry *entry, RleString *referenceSeq, Params *params) {
+    char *rawRefSeq = rleString_expand(referenceSeq);
+    stList *alleleSubstrings = getAlleleSubstrings2(entry, rawRefSeq, referenceSeq->nonRleLength,
+            params->polishParams->columnAnchorTrim, params->polishParams->useRunLengthEncoding);
+    free(rawRefSeq);
+    return alleleSubstrings;
 }

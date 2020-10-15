@@ -1386,6 +1386,9 @@ stList *parseVcf(char *vcfFile, Params *params);
 stList *parseVcf2(char *vcfFile, char *regionStr, Params *params);
 stList *getVcfEntriesForRegion(stList *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos);
 stList *getVcfEntriesForRegion2(stList *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos, double minQual);
+stList *getAlleleSubstrings2(VcfEntry *entry, char *referenceSeq, int64_t refSeqLen, int64_t expansion,
+                             bool useRunLengthEncoding);
+stList *getAlleleSubstrings(VcfEntry *entry, RleString *referenceSeq, Params *params);
 BubbleGraph *bubbleGraph_constructFromPoaAndVCF(Poa *poa, stList *bamChunkReads, stList *vcfEntries,
                                                 PolishParams *params, bool phasing);
 

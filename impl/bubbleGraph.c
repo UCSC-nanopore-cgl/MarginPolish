@@ -1113,6 +1113,7 @@ BubbleGraph *bubbleGraph_constructFromPoaAndVCF(Poa *poa, stList *bamChunkReads,
 }
 
 
+
 BubbleGraph *bubbleGraph_partitionFilteredReads(Poa *poa, stList *bamChunkReads, stGenomeFragment *gF,
                                                 BubbleGraph *bg, BamChunk *bamChunk, uint64_t *reference_rleToNonRleCoordMap,
                                                 stSet *hap1Reads, stSet *hap2Reads, PolishParams *params, FILE *out,

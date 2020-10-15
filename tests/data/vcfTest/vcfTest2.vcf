@@ -1,0 +1,16 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##contig=<ID=vcfTest2,length=128>
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	SAMPLE
+vcfTest2	1	.	A	G	30	.	.	GT	0/1
+vcfTest2	2	.	A	G	30	.	.	GT	0/1
+vcfTest2	33	.	A	G	30	.	.	GT	0/1
+vcfTest2	49	.	A	C,G,T	30	.	.	GT	0/1
+vcfTest2	65	.	G	GCC	30	.	.	GT	0/1
+vcfTest2	73	.	A	ACTG,CCC	30	.	.	GT	0/1
+vcfTest2	81	.	GGG	G	30	.	.	GT	0/1
+vcfTest2	89	.	AGGG	A,AG	30	.	.	GT	0/1
+vcfTest2	97	.	CCC	A,GGA,CAGAGAGA	30	.	.	GT	0/1
+vcfTest2	127	.	A	G	30	.	.	GT	0/1
+vcfTest2	128	.	C	A	30	.	.	GT	0/1
