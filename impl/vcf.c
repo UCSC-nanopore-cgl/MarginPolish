@@ -214,8 +214,8 @@ stList *getVcfEntriesForRegion(stList *vcfEntries, uint64_t *rleMap, char *refSe
 }
 
 
-stList *getAlleleSubstrings2(VcfEntry *entry, char *referenceSeq, int64_t refSeqLen, int64_t expansion,
-                             bool useRunLengthEncoding) {
+stList *getAlleleSubstrings2(VcfEntry *entry, char *referenceSeq, int64_t refSeqLen, int64_t *refStartPos,
+        int64_t *refEndPosExcl, int64_t expansion, bool useRunLengthEncoding) {
     stList *substrings = stList_construct3(0, (void (*)(void*)) rleString_destruct);
     assert(stList_length(entry->alleles) >= 1);
 
@@ -233,7 +233,9 @@ stList *getAlleleSubstrings2(VcfEntry *entry, char *referenceSeq, int64_t refSeq
     // get prefix and suffix strings (from ref seq)
     int64_t pStart = pos - expansion;
     int64_t sStart = pos + refAlleleLen;
-    char *prefix = stString_getSubString(referenceSeq, pStart < 0 ? 0 : pStart, pStart < 0 ? pos : expansion);
+    *refStartPos = pStart < 0 ? 0 : pStart;
+    *refEndPosExcl = sStart + expansion >= refSeqLen ? refSeqLen : sStart + expansion;
+    char *prefix = stString_getSubString(referenceSeq, *refStartPos, pStart < 0 ? pos : expansion);
     char *suffix = stString_getSubString(referenceSeq, sStart, sStart + expansion >= refSeqLen ? refSeqLen - sStart : expansion);
 
     // get alleles
@@ -248,13 +250,22 @@ stList *getAlleleSubstrings2(VcfEntry *entry, char *referenceSeq, int64_t refSeq
         free(fullAlleleSubstring);
     }
 
+    free(prefix);
+    free(suffix);
     return substrings;
 }
 
-stList *getAlleleSubstrings(VcfEntry *entry, RleString *referenceSeq, Params *params) {
+stList *getAlleleSubstringsWithPositions(VcfEntry *entry, RleString *referenceSeq, Params *params,
+        int64_t *refStartPos, int64_t *refEndPosExcl) {
     char *rawRefSeq = rleString_expand(referenceSeq);
-    stList *alleleSubstrings = getAlleleSubstrings2(entry, rawRefSeq, referenceSeq->nonRleLength,
-            params->polishParams->columnAnchorTrim, params->polishParams->useRunLengthEncoding);
+    stList *alleleSubstrings = getAlleleSubstrings2(entry, rawRefSeq, referenceSeq->nonRleLength, refStartPos, refEndPosExcl,
+                                                    params->polishParams->columnAnchorTrim,
+                                                    params->polishParams->useRunLengthEncoding);
     free(rawRefSeq);
     return alleleSubstrings;
+
+}
+stList *getAlleleSubstrings(VcfEntry *entry, RleString *referenceSeq, Params *params) {
+    int64_t s, e;
+    return getAlleleSubstringsWithPositions(entry, referenceSeq, params, &s, &e);
 }
