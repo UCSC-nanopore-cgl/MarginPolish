@@ -23,9 +23,9 @@
  */
 
 void usage() {
-    fprintf(stderr, "usage: marginPolish <BAM_FILE> <ASSEMBLY_FASTA> <PARAMS> [options]\n");
+    fprintf(stderr, "usage: marginVVcfPhase <ALIGN_BAM> <REFERENCE_FASTA> <VARIANT_VCF> <PARAMS> [options]\n");
     fprintf(stderr, "Version: %s \n\n", MARGIN_POLISH_VERSION_H);
-    fprintf(stderr, "Polishes the ASSEMBLY_FASTA using alignments in BAM_FILE.\n");
+    fprintf(stderr, "Tags reads in ALIGN_BAM using variants in VARIANT_VCF.\n");
 
     fprintf(stderr, "\nRequired arguments:\n");
     fprintf(stderr, "    BAM_FILE is the alignment of reads to the assembly (or reference).\n");
@@ -74,8 +74,6 @@ int main(int argc, char *argv[]) {
     bool skipRealignment = FALSE;
 
     // what to output
-    bool outputFasta = TRUE;
-    bool outputHaplotypeBAM = TRUE;
     bool partitionFilteredReads = TRUE;
     bool outputPhasingState = FALSE;
 
@@ -88,7 +86,8 @@ int main(int argc, char *argv[]) {
 
     bamInFile = stString_copy(argv[1]);
     referenceFastaFile = stString_copy(argv[2]);
-    paramsFile = stString_copy(argv[3]);
+    vcfFile = stString_copy(argv[3]);
+    paramsFile = stString_copy(argv[4]);
 
     // Parse the options
     while (1) {
@@ -152,9 +151,6 @@ int main(int argc, char *argv[]) {
             break;
         case 'R':
             skipRealignment = TRUE;
-            break;
-        case 'T':
-            outputFasta = FALSE;
             break;
         default:
             usage();
@@ -221,7 +217,7 @@ int main(int argc, char *argv[]) {
     stHash *referenceSequences = parseReferenceSequences(referenceFastaFile);
 
     // get vcf entries (if set)
-    stList *vcfEntries = NULL;
+    stHash *vcfEntries = NULL;
     if (vcfFile != NULL) {
         vcfEntries = parseVcf2(vcfFile, regionStr, params);
     }
