@@ -1375,6 +1375,9 @@ struct _vcfEntry {
     stList *alleles; //refAllele is alleles[0]
     int64_t gt1;
     int64_t gt2;
+    stList *alleleSubstrings;
+    int64_t refAlnStart;
+    int64_t refAlnStopExcl;
 };
 
 VcfEntry *vcfEntry_construct(char *refSeqName, int64_t refPos, int64_t rawRefPos, double phredQuality,
@@ -1389,9 +1392,9 @@ stList *getVcfEntriesForRegion(stHash *vcfEntries, uint64_t *rleMap, char *refSe
 stList *getVcfEntriesForRegion2(stHash *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos, double minQual);
 stList *getAlleleSubstrings2(VcfEntry *entry, char *referenceSeq, int64_t refSeqLen, int64_t *refStartPos,
         int64_t *refEndPosExcl, int64_t expansion, bool useRunLengthEncoding);
-stList *getAlleleSubstrings(VcfEntry *entry, RleString *referenceSeq, Params *params);
-stList *getAlleleSubstringsWithPositions(VcfEntry *entry, RleString *referenceSeq, Params *params,
-                                         int64_t *refStartPos, int64_t *refEndPosExcl);
+stList *getAlleleSubstrings(VcfEntry *entry, RleString *referenceSeq, Params *params,
+                            int64_t *refStartPos, int64_t *refEndPosExcl);
+void updateVcfEntriesWithSubstringsAndPositions(stList *vcfEntries, char *referenceSeq, int64_t refSeqLen, Params *params);
 BubbleGraph *bubbleGraph_constructFromPoaAndVCF(Poa *poa, stList *bamChunkReads, stList *vcfEntries,
                                                 PolishParams *params, bool phasing);
 BubbleGraph *bubbleGraph_constructFromPoaAndVCFOnlyVCFAllele(Poa *poa, stList *bamChunkReads,

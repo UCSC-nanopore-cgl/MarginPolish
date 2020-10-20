@@ -215,8 +215,8 @@ void test_vcfAlleleSubstrings(CuTest *testCase) {
     stList *allRefPositions = stList_construct3(0, (void (*)(void*)) stIntTuple_destruct);
     for (int64_t i = 0; i < stList_length(vcfEntries); i++) {
         int64_t start, end;
-        stList_append(allAlleleSubstrings, getAlleleSubstringsWithPositions(stList_get(vcfEntries, i), refRleString,
-                params, &start, &end));
+        stList_append(allAlleleSubstrings, getAlleleSubstrings(stList_get(vcfEntries, i), refRleString,
+                                                               params, &start, &end));
         stList_append(allRefPositions, stIntTuple_construct2(start, end));
     }
 
@@ -264,8 +264,8 @@ void test_vcfAlleleSubstrings(CuTest *testCase) {
     stList *allRegionRefPositions = stList_construct3(0, (void (*)(void*)) stIntTuple_destruct);
     for (int64_t i = 0; i < stList_length(regionVcfEntries); i++) {
         int64_t start, end;
-        stList_append(allRegionAlleleSubstrings, getAlleleSubstringsWithPositions(stList_get(regionVcfEntries, i),
-                refRleString, params, &start, &end));
+        stList_append(allRegionAlleleSubstrings, getAlleleSubstrings(stList_get(regionVcfEntries, i),
+                                                                     refRleString, params, &start, &end));
         stList_append(allRegionRefPositions, stIntTuple_construct2(start, end));
     }
 
