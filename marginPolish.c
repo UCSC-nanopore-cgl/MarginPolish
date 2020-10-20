@@ -50,6 +50,8 @@ void usage() {
     fprintf(stderr, "    -v --vcf                 : VCF with sites for phasing (will not perform variant detection if set)\n");
     fprintf(stderr, "    -S --skipFilteredReads   : Will NOT attempt to haplotype filtered reads (--diploid only)\n");
     fprintf(stderr, "    -R --skipRealignment     : Skip realignment (for haplotyping only)\n");
+    fprintf(stderr, "    -A --onlyVcfAlleles      : Only use alleles specified in the VCF. Requires NO RLE and \n");
+    fprintf(stderr, "                                 Requires NO RLE and --skipOutputFasta\n");
 
 # ifdef _HDF5
     fprintf(stderr, "\nHELEN feature generation options:\n");
@@ -117,6 +119,7 @@ int main(int argc, char *argv[]) {
     bool partitionFilteredReads = TRUE;
     bool outputPhasingState = FALSE;
     bool partitionTruthSequences = FALSE;
+    bool onlyUseVCFAlleles = FALSE;
 
     if (argc < 4) {
         free(outputBase);
@@ -158,10 +161,11 @@ int main(int argc, char *argv[]) {
                 { "outputPhasingState", no_argument, 0, 't'},
                 { "skipRealignment", no_argument, 0, 'R'},
                 { "skipOutputFasta", no_argument, 0, 'T'},
+                { "onlyVcfAlleles", no_argument, 0, 'A'},
                 { 0, 0, 0, 0 } };
 
         int option_index = 0;
-        int key = getopt_long(argc-2, &argv[2], "ha:o:v:p:2v:t:r:fF:u:L:cijdMnkSsRT", long_options, &option_index);
+        int key = getopt_long(argc-2, &argv[2], "ha:o:v:p:2v:t:r:fF:u:L:cijdMnkSsRTA", long_options, &option_index);
 
         if (key == -1) {
             break;
@@ -263,6 +267,9 @@ int main(int argc, char *argv[]) {
         case 'T':
             outputFasta = FALSE;
             break;
+        case 'A':
+            onlyUseVCFAlleles = TRUE;
+            break;
         default:
             usage();
             free(outputBase);
@@ -305,8 +312,8 @@ int main(int argc, char *argv[]) {
     }
 
     // sanity check, verify potentially conflicting parameters
-    if (!outputFasta && (outputPoaCSV || outputRepeatCounts )) {
-        st_errAbort("Cannot --outputPoaCSV or --outputRepeatCounts if --skipOutputFasta");
+    if (!outputFasta && (outputPoaCSV || outputRepeatCounts || outputPoaDOT )) {
+        st_errAbort("Cannot --outputPoaCSV, --outputRepeatCounts, or --outputPoaDOT if --skipOutputFasta");
     }
 
     // Initialization from arguments
@@ -359,6 +366,15 @@ int main(int argc, char *argv[]) {
     if (diploid && partitionFilteredReads && !params->polishParams->skipHaploidPolishingIfDiploid) {
         st_errAbort("Parameter polish->skipHaploidPolishingIfDiploid must be TRUE unless skipFilteredReads is set");
     }
+    if (onlyUseVCFAlleles) {
+        if (params->polishParams->useRunLengthEncoding) {
+            st_errAbort("The --onlyVcfAlleles parameter can only be used without runLengthEncoding");
+        }
+        if (outputFasta) {
+            st_errAbort("The --onlyVcfAlleles parameter must be used with the --skipOutputFasta option");
+        }
+        st_logCritical("> Only considering alleles found in VCF\n");
+    }
 
     // Set no RLE if appropriate feature type is set
     if (helenFeatureType == HFEAT_SIMPLE_WEIGHT) {
@@ -382,7 +398,7 @@ int main(int argc, char *argv[]) {
     stHash *referenceSequences = parseReferenceSequences(referenceFastaFile);
 
     // get vcf entries (if set)
-    stList *vcfEntries = NULL;
+    stHash *vcfEntries = NULL;
     if (vcfFile != NULL) {
         vcfEntries = parseVcf2(vcfFile, regionStr, params);
     }
@@ -641,6 +657,7 @@ int main(int argc, char *argv[]) {
                                    rleString_getNonRleToRleCoordinateMap(rleReference) : NULL;
                 chunkVcfEntries = getVcfEntriesForRegion(vcfEntries, rleMap, bamChunk->refSeqName,
                         bamChunk->chunkOverlapStart,  bamChunk->chunkOverlapEnd);
+                st_logInfo(" %s Got %"PRId64" VCF entries for region\n", logIdentifier, stList_length(chunkVcfEntries));
                 if (rleMap != NULL) free(rleMap);
             }
             do {
@@ -672,7 +689,11 @@ int main(int argc, char *argv[]) {
 
 
                 // Get the bubble graph representation
-                bg = bubbleGraph_constructFromPoaAndVCF(poa, reads, chunkVcfEntries, params->polishParams, TRUE);
+                if (onlyUseVCFAlleles) {
+                    bg = bubbleGraph_constructFromPoaAndVCFOnlyVCFAllele(poa, reads, rleReference, chunkVcfEntries, params);
+                } else {
+                    bg = bubbleGraph_constructFromPoaAndVCF(poa, reads, chunkVcfEntries, params->polishParams, TRUE);
+                }
 
                 // Now make a POA for each of the haplotypes
                 ref = bubbleGraph_getReference(bg, bamChunk->refSeqName, params);
@@ -709,36 +730,50 @@ int main(int argc, char *argv[]) {
                 bubbleFindingIteration++;
             } while (vcfFile == NULL && bubbleFindingIteration <= params->phaseParams->bubbleFindingIterations);
 
-            st_logInfo(" %s Building POA for each haplotype\n", logIdentifier);
-            uint64_t *hap1 = getPaddedHaplotypeString(gf->haplotypeString1, gf, bg, params);
-            uint64_t *hap2 = getPaddedHaplotypeString(gf->haplotypeString2, gf, bg, params);
-
-            Poa *poa_hap1 = bubbleGraph_getNewPoa(bg, hap1, poa, reads, params);
-            Poa *poa_hap2 = bubbleGraph_getNewPoa(bg, hap2, poa, reads, params);
-
-            if(params->polishParams->useRunLengthEncoding) {
-                st_logInfo(" %s Using read phasing to reestimate repeat counts in phased manner\n", logIdentifier);
-                poa_estimatePhasedRepeatCountsUsingBayesianModel(poa_hap1, reads, params->polishParams->repeatSubMatrix,
-                                                                 readsBelongingToHap1, readsBelongingToHap2, params->polishParams);
-                poa_estimatePhasedRepeatCountsUsingBayesianModel(poa_hap2, reads, params->polishParams->repeatSubMatrix,
-                                                                 readsBelongingToHap2, readsBelongingToHap1, params->polishParams);
-            }
-            st_logInfo(" %s Phased primary reads in %d sec\n", logIdentifier, time(NULL) - primaryPhasingStart);
 
             // debugging output
             char *chunkBubbleOutFilename = NULL;
             FILE *chunkBubbleOut = NULL;
             uint64_t *reference_rleToNonRleCoordMap = rleString_getRleToNonRleCoordinateMap(rleReference);
-            if (outputPhasingState) {
-                // save info
-                chunkBubbleOutFilename = stString_print("%s.C%05"PRId64".%s-%"PRId64"-%"PRId64".phasingInfo.json",
-                                                        outputBase, chunkIdx,  bamChunk->refSeqName, bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd);
-                st_logInfo(" %s Saving chunk phasing info to: %s\n", logIdentifier, chunkBubbleOutFilename);
-                chunkBubbleOut = safe_fopen(chunkBubbleOutFilename, "w");
-                fprintf(chunkBubbleOut, "{\n");
-                bubbleGraph_saveBubblePhasingInfo(bamChunk, bg, readsToPSeqs, gf, reference_rleToNonRleCoordMap,
-                                                  chunkBubbleOut);
+
+            // haplotype-specific info (skipped if not writing FASTA)
+            uint64_t *hap1 = NULL;
+            uint64_t *hap2 = NULL;
+            Poa *poa_hap1 = NULL;
+            Poa *poa_hap2 = NULL;
+
+            if (outputFasta) {
+                st_logInfo(" %s Building POA for each haplotype\n", logIdentifier);
+                hap1 = getPaddedHaplotypeString(gf->haplotypeString1, gf, bg, params);
+                hap2 = getPaddedHaplotypeString(gf->haplotypeString2, gf, bg, params);
+
+                poa_hap1 = bubbleGraph_getNewPoa(bg, hap1, poa, reads, params);
+                poa_hap2 = bubbleGraph_getNewPoa(bg, hap2, poa, reads, params);
+
+                if(params->polishParams->useRunLengthEncoding) {
+                    st_logInfo(" %s Using read phasing to reestimate repeat counts in phased manner\n", logIdentifier);
+                    poa_estimatePhasedRepeatCountsUsingBayesianModel(poa_hap1, reads, params->polishParams->repeatSubMatrix,
+                                                                     readsBelongingToHap1, readsBelongingToHap2, params->polishParams);
+                    poa_estimatePhasedRepeatCountsUsingBayesianModel(poa_hap2, reads, params->polishParams->repeatSubMatrix,
+                                                                     readsBelongingToHap2, readsBelongingToHap1, params->polishParams);
+                }
+                st_logInfo(" %s Phased primary reads in %d sec\n", logIdentifier, time(NULL) - primaryPhasingStart);
+
+
+                if (outputPhasingState) {
+                    // save info
+                    chunkBubbleOutFilename = stString_print("%s.C%05"PRId64".%s-%"PRId64"-%"PRId64".phasingInfo.json",
+                                                            outputBase, chunkIdx,  bamChunk->refSeqName, bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd);
+                    st_logInfo(" %s Saving chunk phasing info to: %s\n", logIdentifier, chunkBubbleOutFilename);
+                    chunkBubbleOut = safe_fopen(chunkBubbleOutFilename, "w");
+                    fprintf(chunkBubbleOut, "{\n");
+                    bubbleGraph_saveBubblePhasingInfo(bamChunk, bg, readsToPSeqs, gf, reference_rleToNonRleCoordMap,
+                                                      chunkBubbleOut);
+                }
+            } else {
+                st_logInfo(" %s Skipping haplotype-specific POA construction\n", logIdentifier);
             }
+
 
             // should included filtered reads in output
             if (partitionFilteredReads || partitionTruthSequences) {
@@ -777,7 +812,7 @@ int main(int argc, char *argv[]) {
             }
 
             // debugging output for state
-            if (outputPhasingState) {
+            if (outputPhasingState && outputFasta) {
                 writePhasedReadInfoJSON(bamChunk, reads, alignments, filteredReads, filteredAlignments,
                                         readsBelongingToHap1, readsBelongingToHap2, reference_rleToNonRleCoordMap,
                                         chunkBubbleOut);
@@ -790,10 +825,6 @@ int main(int argc, char *argv[]) {
             outputChunkers_processChunkSequencePhased(outputChunkers, threadIdx, chunkIdx, bamChunk->refSeqName,
                                                       poa_hap1, poa_hap2, reads,
                                                       readsBelongingToHap1, readsBelongingToHap2, gf, params);
-            RleString *polishedRleConsensusH1 = rleString_copy(poa_hap1->refString);
-            RleString *polishedRleConsensusH2 = rleString_copy(poa_hap2->refString);
-            char *polishedConsensusStringH1 = rleString_expand(polishedRleConsensusH1);
-            char *polishedConsensusStringH2 = rleString_expand(polishedRleConsensusH2);
 
             //ancillary files
             if (writeChunkSupplementaryOutput) {
@@ -802,35 +833,17 @@ int main(int argc, char *argv[]) {
                         outputRepeatCounts, outputHaplotypeReads, outputHaplotypeBAM, logIdentifier);
             }
 
-            // helen
-            #ifdef _HDF5
-            if (helenFeatureType != HFEAT_NONE) {
-                PoaFeature_handleDiploidHelenFeatures(helenFeatureType,
-                                                      splitWeightMaxRunLength,
-                                                      helenHDF5Files, fullFeatureOutput, trueReferenceBam,
-                                                      NULL, params,
-                                                      logIdentifier, chunkIdx, bamChunk, reads, poa_hap1, poa_hap2,
-                                                      readsBelongingToHap1,
-                                                      readsBelongingToHap2, polishedRleConsensusH1,
-                                                      polishedRleConsensusH2, rleReference);
-            }
-            #endif
-
             // Cleanup
-            free(hap1);
-            free(hap2);
+            if (hap1 != NULL) free(hap1);
+            if (hap2 != NULL) free(hap2);
             if (chunkVcfEntries != NULL) stList_destruct(chunkVcfEntries);
             stSet_destruct(readsBelongingToHap1);
             stSet_destruct(readsBelongingToHap2);
-            rleString_destruct(polishedRleConsensusH1);
-            rleString_destruct(polishedRleConsensusH2);
-            free(polishedConsensusStringH1);
-            free(polishedConsensusStringH2);
             bubbleGraph_destruct(bg);
             stGenomeFragment_destruct(gf);
             stReference_destruct(ref);
-            poa_destruct(poa_hap1);
-            poa_destruct(poa_hap2);
+            if (poa_hap1 != NULL) poa_destruct(poa_hap1);
+            if (poa_hap2 != NULL) poa_destruct(poa_hap2);
             stHash_destruct(readsToPSeqs);
             free(reference_rleToNonRleCoordMap);
 
@@ -983,7 +996,7 @@ int main(int argc, char *argv[]) {
     if (outputRepeatCountFile != NULL) free(outputRepeatCountFile);
     if (vcfFile != NULL) {
         free(vcfFile);
-        stList_destruct(vcfEntries);
+        stHash_destruct(vcfEntries);
     }
     if (allReadIdsHap1 != NULL) stList_destruct(allReadIdsHap1);
     if (allReadIdsHap2 != NULL) stList_destruct(allReadIdsHap2);

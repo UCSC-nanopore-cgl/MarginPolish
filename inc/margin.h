@@ -268,8 +268,11 @@ struct _stRPHmmParameters {
 	// Should homozygous variants be used during bubble finding with input VCF? (improves sequence quality, can confound phasing)
 	bool includeHomozygousVCFEntries;
 
-	// should we include all vcf entries, or just ["PASS", "pass", "."]
-	bool onlyUsePassVCFEntries;
+    // should we include all vcf entries, or just ["PASS", "pass", "."]
+    bool onlyUsePassVCFEntries;
+
+    // should we include all vcf entries, or just SNPs
+    bool onlyUseSNPVCFEntries;
 
 	// should we stitch with primary reads or all reads (including filtering via downsampling or other means)
 	bool stitchWithPrimaryReadsOnly;
@@ -1369,19 +1372,30 @@ struct _vcfEntry {
     int64_t refPos;
     int64_t rawRefPosInformativeOnly;
     double phredQuality;
-    RleString *allele1;
-    RleString *allele2;
+    stList *alleles; //refAllele is alleles[0]
+    int64_t gt1;
+    int64_t gt2;
 };
 
 VcfEntry *vcfEntry_construct(char *refSeqName, int64_t refPos, int64_t rawRefPos, double phredQuality,
-        RleString *allele1, RleString *allele2);
+        stList *alleles, int64_t gt1, int64_t gt2);
 void vcfEntry_destruct(VcfEntry *vcfEntry);
-stList *parseVcf(char *vcfFile, Params *params);
-stList *parseVcf2(char *vcfFile, char *regionStr, Params *params);
-stList *getVcfEntriesForRegion(stList *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos);
-stList *getVcfEntriesForRegion2(stList *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos, double minQual);
+RleString *getVcfEntryAlleleH1(VcfEntry *vcfEntry);
+RleString *getVcfEntryAlleleH2(VcfEntry *vcfEntry);
+stHash *parseVcf(char *vcfFile, Params *params);
+stHash *parseVcf2(char *vcfFile, char *regionStr, Params *params);
+int64_t binarySearchVcfListForFirstIndexAfterRefPos(stList *vcfEntries, int64_t refPos); // just exposed for testing
+stList *getVcfEntriesForRegion(stHash *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos);
+stList *getVcfEntriesForRegion2(stHash *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos, double minQual);
+stList *getAlleleSubstrings2(VcfEntry *entry, char *referenceSeq, int64_t refSeqLen, int64_t *refStartPos,
+        int64_t *refEndPosExcl, int64_t expansion, bool useRunLengthEncoding);
+stList *getAlleleSubstrings(VcfEntry *entry, RleString *referenceSeq, Params *params);
+stList *getAlleleSubstringsWithPositions(VcfEntry *entry, RleString *referenceSeq, Params *params,
+                                         int64_t *refStartPos, int64_t *refEndPosExcl);
 BubbleGraph *bubbleGraph_constructFromPoaAndVCF(Poa *poa, stList *bamChunkReads, stList *vcfEntries,
                                                 PolishParams *params, bool phasing);
+BubbleGraph *bubbleGraph_constructFromPoaAndVCFOnlyVCFAllele(Poa *poa, stList *bamChunkReads,
+															 RleString *referenceSeq, stList *vcfEntries, Params *params);
 
 /*
  * Misc

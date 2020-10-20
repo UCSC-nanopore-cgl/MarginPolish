@@ -397,8 +397,9 @@ char *getLargeNucleotideSequenceSummary(char *sequence) {
     char *tmpSeq;
     if (strlen(sequence) > 17) {
         char ch = sequence[8];
+        int64_t sequenceLen = strlen(sequence);
         sequence[8] = '\0';
-        tmpSeq = stString_print("%s...%s", sequence, &(sequence[strlen(sequence) - 8]));
+        tmpSeq = stString_print("%s...%s", sequence, &(sequence[sequenceLen - 8]));
         sequence[8] = ch;
     } else {
         tmpSeq = stString_copy(sequence);
@@ -474,12 +475,25 @@ int64_t removeOverlap(char *prefixString, int64_t prefixStringLength, char *suff
     // Pick the median point
     stIntTuple *maxPair = NULL;
     int64_t maxPairIdx = -1;
+    int64_t badAlignedPairCount = 0;
     for (int64_t k = 0; k < stList_length(alignedPairs); k++) {
         stIntTuple *aPair = stList_get(alignedPairs, k);
-        if (maxPair == NULL || stIntTuple_get(aPair, 0) > stIntTuple_get(maxPair, 0)) {
+        int64_t p = stIntTuple_get(aPair, 1);
+        int64_t s = stIntTuple_get(aPair, 2);
+        if (p < 0 || s < 0 || p >= prefixStringLength - i || s >= j) {
+            if (badAlignedPairCount == 0) {
+                st_logInfo(" %s CRITICAL proposed aligned pair (p%"PRId64", s%"PRId64") outside bounds p[0,%"PRId64"), s[0,%"PRId64")\n",
+                           logIdentifier, p, s, prefixStringLength - i, j);
+            }
+            badAlignedPairCount++;
+        } else if (maxPair == NULL || stIntTuple_get(aPair, 0) > stIntTuple_get(maxPair, 0)) {
             maxPairIdx = k;
             maxPair = aPair;
         }
+    }
+    if (badAlignedPairCount > 0) {
+        st_logCritical(" %s getAlignedPairsUsingAnchors proposed %"PRId64" (of %"PRId64") pairs outside of bounds p[0,%"PRId64"), s[0,%"PRId64")\n",
+                   logIdentifier, badAlignedPairCount, stList_length(alignedPairs), prefixStringLength - i, j);
     }
 
     if (maxPair == NULL) {
@@ -549,12 +563,19 @@ int64_t chunkToStitch_trimAdjacentChunks2(char **pSeq, char **seq,
                                                params->polishParams->chunkBoundary * 2,
                                                params->polishParams, &pSeqCropEnd, &seqCropStart);
 
-    // Log
+    // Loggit
     st_logInfo(
             " %s Removing overlap between neighbouring chunks (in RLE space). Approx overlap size: %i, "
             "overlap-match weight: %f, left-trim: %i, right-trim: %i:\n", logIdentifier,
             (int) params->polishParams->chunkBoundary * 2,
             (float) overlapMatchWeight / PAIR_ALIGNMENT_PROB_1, pSeqRle->length - pSeqCropEnd, seqCropStart);
+
+    // sanity check
+    if (pSeqCropEnd > pSeqRle->length || seqCropStart < 0 || seqCropStart > seqRle->length) {
+        st_errAbort(" %s Got invalid crop points, expected pSeqEnd %"PRId64" <= pSeqLen %"PRId64", "
+                    "seqStart %"PRId64" >= 0, seqStart %"PRId64" <= seqLen %"PRId64"\n",
+                    pSeqCropEnd, pSeqRle->length, seqCropStart, seqCropStart, seqRle->length);
+    }
 
     // debug logging
     if (st_getLogLevel() >= info) {

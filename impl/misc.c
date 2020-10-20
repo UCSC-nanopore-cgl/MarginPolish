@@ -322,9 +322,24 @@ stList *produceVcfEntriesFromBubbleGraph(BamChunk *bamChunk, BubbleGraph *bg, st
         uint64_t bubblePos = (uint64_t ) (b->refStart + b->bubbleLength / 2);
         if (pass) {
             for (int64_t cvp = 0; cvp < stList_length(b->variantPositionOffsets); cvp++) {
+                stList *alleles = stList_construct();
+                stList_append(alleles, rleString_copy(b->refAllele));
+                int hap1Allele, hap2Allele;
+                if (b->refAllele == hap1) {
+                    hap1Allele = 0;
+                } else {
+                    hap1Allele = 1;
+                    stList_append(alleles, rleString_copy(hap1));
+                }
+                if (b->refAllele == hap2) {
+                    hap2Allele = 0;
+                } else {
+                    hap2Allele = hap1Allele + 1;
+                    stList_append(alleles, rleString_copy(hap2));
+                }
                 stList_append(vcfEntries, vcfEntry_construct(bamChunk->refSeqName,
                         b->refStart + (int64_t) stList_get(b->variantPositionOffsets, cvp), -1, -1,
-                        rleString_copy(hap1), rleString_copy(hap2)));
+                        alleles, hap1Allele, hap2Allele));
             }
             passes++;
         }

@@ -1,10 +1,17 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##FILTER=<ID=RefCall,Description="Genotyping model thinks this site is reference.">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=AD,Number=R,Type=Integer,Description="Read depth for each allele">
+##FORMAT=<ID=SE,Number=1,Type=String,Description="SomethingElse">
+##contig=<ID=chr20,length=260000000>
 #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	SAMPLE
-chr20	1000	.	G	A	30	.	.	GT:AD	0/1:1,1
-chr20	2000	.	T	CCC	30	.	.	AD:GT	0,1:0|1
-chr20	3000	.	T	C,A	30	.	.	GT:AD	1|2:1,1
-chr20	4000	.	T	C	30	.	.	GT:AD:SE	0|1:1,1:SomethingElse
-chr20	5000	.	A	GATTACA	30	.	.	GT:AD	1|0:1,1
-chr20	6000	.	TC	T	30	.	.	GT:AD	1/0:1,1
-chr20	7000	.	G	.	30	.	.	GT:AD	0|0:1,1
-chr20	8000	.	G	A	30	.	.	GT:AD	1|1:1,1
-chr20	250000000	.	G	A	30	.	.	GT:AD	1|0:1,1
+chr20	1001	.	G	A	30	.	.	GT:AD	0/1:1,1
+chr20	2001	.	T	CCC	30	.	.	AD:GT	0,1:0|1
+chr20	3001	.	T	C,A	30	.	.	GT:AD	1|2:1,1
+chr20	4001	.	T	C	30	.	.	GT:AD:SE	0|1:1,1:SomethingElse
+chr20	5001	.	A	GATTACA	30	.	.	GT:AD	1|0:1,1
+chr20	6001	.	TC	T	30	.	.	GT:AD	1/0:1,1
+chr20	7001	.	G	A	30	.	.	GT:AD	0|0:1,1
+chr20	8001	.	G	A	30	.	.	GT:AD	1|1:1,1
+chr20	250000001	.	G	A	30	.	.	GT:AD	1|0:1,1

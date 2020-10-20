@@ -792,7 +792,7 @@ void getPosteriorProbsWithBanding(StateMachine *sM, stList *anchorPairs, const S
                         if (totalPosteriorCalculationsThisTraceback != 1) {
                             if (totalProbability + 1.0 <= newTotalProbability || newTotalProbability + 1.0 <= newTotalProbability) {
                                 char *logIdentifier = getLogIdentifier();
-                                st_logInfo(" %s Error calculating newTotalProbability: totalProbability:%f, totalNewProbability:%f",
+                                st_logInfo(" %s CRITICAL Error calculating newTotalProbability: totalProbability:%f, totalNewProbability:%f\n",
                                         logIdentifier, totalProbability, newTotalProbability);
                                 free(logIdentifier);
                             }
@@ -1539,11 +1539,14 @@ int kmerEqualKey(const void *key1, const void *key2) {
 
 stHash *getKmers(SymbolString seq, uint64_t *l) {
     stHash *kmerOccurrences = stHash_construct3(kmerKey, kmerEqualKey, NULL, NULL);
-    for (int64_t i = 0; i < seq.length - KMER_SIZE + 1; i++) {
+    for (uint64_t i = 0; i < seq.length - KMER_SIZE + 1; i++) {
         l[i] = i;
-        stHash_insert(kmerOccurrences, &(seq.sequence[i]),
-                      &(l[i])); // For speed and simplicity this only allows for one entry per k-mer
-        // for KMER_SIZE >= 20, this should not be a big deal as collisions should be rare
+        // first hit counts
+        if (stHash_search(kmerOccurrences, &(seq.sequence[i])) == NULL) {
+            stHash_insert(kmerOccurrences, &(seq.sequence[i]),
+                          &(l[i])); // For speed and simplicity this only allows for one entry per k-mer
+            // for KMER_SIZE >= 20, this should not be a big deal as collisions should be rare
+        }
     }
     return kmerOccurrences;
 }
@@ -1567,7 +1570,7 @@ stList *getKmerAlignmentAnchors(SymbolString seqX, SymbolString seqY, uint64_t a
     ChainPair cPs[seqY.length - KMER_SIZE + 1]; // Array of chain pairs, representing shared k-mers
     uint64_t i = 0, maxScore = 0;
     int64_t maxPair = -1;
-    for (int64_t y = 0; y < seqY.length - KMER_SIZE + 1; y++) {
+    for (uint64_t y = 0; y < seqY.length - KMER_SIZE + 1; y++) {
         int64_t *x = stHash_search(kmerOccurrences, &(seqY.sequence[y]));
         if (x != NULL) {
             cPs[i].x = *x;
