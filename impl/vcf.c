@@ -19,11 +19,15 @@ VcfEntry *vcfEntry_construct(char *refSeqName, int64_t refPos, int64_t rawRefPos
     vcfEntry->alleles = alleles == NULL ? stList_construct3(0, (void (*)(void*))rleString_destruct) : alleles;
     vcfEntry->gt1 = gt1;
     vcfEntry->gt2 = gt2;
+    vcfEntry->alleleSubstrings = NULL;
+    vcfEntry->refAlnStart = -1;
+    vcfEntry->refAlnStopExcl = -1;
     return vcfEntry;
 }
 
 void vcfEntry_destruct(VcfEntry *vcfEntry) {
     stList_destruct(vcfEntry->alleles);
+    if (vcfEntry->alleleSubstrings != NULL) stList_destruct(vcfEntry->alleleSubstrings);
     free(vcfEntry->refSeqName);
     free(vcfEntry);
 }
@@ -335,8 +339,8 @@ stList *getAlleleSubstrings2(VcfEntry *entry, char *referenceSeq, int64_t refSeq
     return substrings;
 }
 
-stList *getAlleleSubstringsWithPositions(VcfEntry *entry, RleString *referenceSeq, Params *params,
-        int64_t *refStartPos, int64_t *refEndPosExcl) {
+stList *getAlleleSubstrings(VcfEntry *entry, RleString *referenceSeq, Params *params,
+                            int64_t *refStartPos, int64_t *refEndPosExcl) {
     char *rawRefSeq = rleString_expand(referenceSeq);
     stList *alleleSubstrings = getAlleleSubstrings2(entry, rawRefSeq, referenceSeq->nonRleLength, refStartPos, refEndPosExcl,
                                                     params->polishParams->columnAnchorTrim,
@@ -345,7 +349,13 @@ stList *getAlleleSubstringsWithPositions(VcfEntry *entry, RleString *referenceSe
     return alleleSubstrings;
 
 }
-stList *getAlleleSubstrings(VcfEntry *entry, RleString *referenceSeq, Params *params) {
-    int64_t s, e;
-    return getAlleleSubstringsWithPositions(entry, referenceSeq, params, &s, &e);
+
+void updateVcfEntriesWithSubstringsAndPositions(stList *vcfEntries, char *referenceSeq, int64_t refSeqLen, Params *params) {
+    for (int64_t i = 0; i < stList_length(vcfEntries); i++) {
+        VcfEntry *vcfEntry = stList_get(vcfEntries, i);
+        assert(vcfEntry->alleleSubstrings == NULL);
+        vcfEntry->alleleSubstrings = getAlleleSubstrings2(vcfEntry, referenceSeq, refSeqLen, &vcfEntry->refAlnStart,
+                &vcfEntry->refAlnStopExcl, params->polishParams->columnAnchorTrim, params->polishParams->useRunLengthEncoding);
+
+    }
 }

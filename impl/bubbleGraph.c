@@ -1114,7 +1114,9 @@ BubbleGraph *bubbleGraph_constructFromPoaAndVCF(Poa *poa, stList *bamChunkReads,
 
 
 BubbleGraph *bubbleGraph_constructFromPoaAndVCFOnlyVCFAllele(Poa *poa, stList *bamChunkReads,
-        RleString *referenceSeq, stList *vcfEntries, Params *params) {
+        RleString *referenceSeqRLE, stList *vcfEntries, Params *params) {
+    // prep
+    char *referenceSeq = rleString_expand(referenceSeqRLE);
 
     // Make a list of bubbles
     stList *bubbles = stList_construct3(0, free);
@@ -1122,7 +1124,8 @@ BubbleGraph *bubbleGraph_constructFromPoaAndVCFOnlyVCFAllele(Poa *poa, stList *b
     for (int64_t v = 0; v < stList_length(vcfEntries); v++) {
         VcfEntry *vcf = stList_get(vcfEntries, v);
         int64_t refStartPos, refEndPos;
-        stList *alleles = getAlleleSubstringsWithPositions(vcf, referenceSeq, params, &refStartPos, &refEndPos);
+        stList *alleles = getAlleleSubstrings2(vcf, referenceSeq, referenceSeqRLE->nonRleLength, &refStartPos,
+                &refEndPos, params->polishParams->columnAnchorTrim, params->polishParams->useRunLengthEncoding);
         assert(stList_length(alleles) >= 2);
         if (refStartPos < lastRefEndPos) {
             st_logInfo("  Skipping variant at original reference pos %"PRId64" for overlap with previous variant\n",
@@ -1255,6 +1258,7 @@ BubbleGraph *bubbleGraph_constructFromPoaAndVCFOnlyVCFAllele(Poa *poa, stList *b
 
     // Cleanup
     stList_destruct(bubbles);
+    free(referenceSeq);
 
     return bg;
 }
