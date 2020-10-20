@@ -41,12 +41,34 @@ RleString *getVcfEntryAlleleH2(VcfEntry *vcfEntry) {
 #define  Q_WEIGHT .2
 #define DEFAULT_MIN_VCF_QUAL -1
 
-stList *parseVcf(char *vcfFile, Params *params) {
+stHash *parseVcf(char *vcfFile, Params *params) {
     return parseVcf2(vcfFile, NULL, params);
 }
 
-stList *parseVcf2(char *vcfFile, char *regionStr, Params *params) {
-    stList *entries = stList_construct3(0, (void(*)(void*))vcfEntry_destruct);
+
+stHash *getContigToVariantMap(stList *vcfEntries) {
+    stHash *map = stHash_construct3(stHash_stringKey, stHash_stringEqualKey, free, (void(*)(void*))stList_destruct);
+    for (int64_t i = 0; i < stList_length(vcfEntries); i++) {
+        VcfEntry *vcfEntry = stList_get(vcfEntries, i);
+        stList *contigList = stHash_search(map, vcfEntry->refSeqName);
+        if (contigList == NULL) {
+            contigList = stList_construct3(0, (void(*)(void*))vcfEntry_destruct);
+            stHash_insert(map, stString_copy(vcfEntry->refSeqName), contigList);
+        }
+        stList_append(contigList, vcfEntry);
+    }
+    return map;
+}
+
+int vcfEntryCmpFn(const void *a, const void *b) {
+    VcfEntry *A = (VcfEntry*) a;
+    VcfEntry *B = (VcfEntry*) b;
+    if (A->refPos == B->refPos) return 0;
+    return A->refPos < B->refPos ? -1 : 1;
+}
+
+stHash *parseVcf2(char *vcfFile, char *regionStr, Params *params) {
+    stHash *entries = stHash_construct3(stHash_stringKey, stHash_stringEqualKey, free, (void(*)(void*))stList_destruct);
 
     //open vcf file
     htsFile *fp = hts_open(vcfFile,"rb");
@@ -70,6 +92,7 @@ stList *parseVcf2(char *vcfFile, char *regionStr, Params *params) {
             regionEnd = -1;
         }
     }
+    int64_t totalEntries = 0;
     int64_t skippedForRegion = 0;
     int64_t skippedForIndel = 0;
     int64_t skippedForNotPass = 0;
@@ -90,6 +113,7 @@ stList *parseVcf2(char *vcfFile, char *regionStr, Params *params) {
     {
         //unpack for read REF,ALT,INFO,etc
         bcf_unpack(rec, BCF_UN_ALL);
+        totalEntries++;
 
         // location data
         char *chrom = bcf_hdr_id2name(hdr, rec->rid);
@@ -149,7 +173,12 @@ stList *parseVcf2(char *vcfFile, char *regionStr, Params *params) {
 
         // save it
         VcfEntry *entry = vcfEntry_construct(chrom, pos, pos, variantQuality, alleles, gt1, gt2);
-        stList_append(entries, entry);
+        stList *contigList = stHash_search(entries, entry->refSeqName);
+        if (contigList == NULL) {
+            contigList = stList_construct3(0, (void(*)(void*))vcfEntry_destruct);
+            stHash_insert(entries, stString_copy(entry->refSeqName), contigList);
+        }
+        stList_append(contigList, entry);
     }
 
     // cleanup
@@ -163,11 +192,24 @@ stList *parseVcf2(char *vcfFile, char *regionStr, Params *params) {
     // logging
     st_logCritical("> Parsed %"PRId64" %sVCF entries from %s; skipped %"PRId64" for region, %"PRId64" for not being "
                    "PASS, %"PRId64" for being homozygous, %"PRId64" for being INDEL\n",
-                   stList_length(entries), params->phaseParams->includeHomozygousVCFEntries ? " " : "HET ", vcfFile,
+                   totalEntries, params->phaseParams->includeHomozygousVCFEntries ? " " : "HET ", vcfFile,
                    skippedForRegion, skippedForNotPass, skippedForHomozygous, skippedForIndel);
-    if (stList_length(entries) == 0) {
+    if (totalEntries == 0) {
         st_errAbort("No valid VCF entries found!");
     }
+
+    // ensure sorted
+    stHashIterator *itor = stHash_getIterator(entries);
+    char *contigName = NULL;
+    while ((contigName = stHash_getNext(itor)) != NULL) {
+        stList *contigEntries = stHash_search(entries, contigName);
+        stList_sort(contigEntries, vcfEntryCmpFn);
+        assert(((VcfEntry*) stList_get(contigEntries, 0))->refPos <= ((VcfEntry*) stList_get(contigEntries,
+                stList_length(contigEntries) - 1))->refPos);
+    }
+    stHash_destructIterator(itor);
+
+    // finish
     return entries;
 }
 
@@ -179,14 +221,52 @@ stList *copyListOfRleStrings(stList *toCopy) {
     return copy;
 }
 
-stList *getVcfEntriesForRegion2(stList *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos, double minQual) {
+int64_t binarySearchVcfListForFirstIndexAfterRefPos2(stList *vcfEntries, int64_t desiredEntryPos, int64_t startPos, int64_t endPosIncl) {
+    if (endPosIncl - startPos == 1) {
+        return ((VcfEntry*)stList_get(vcfEntries, startPos))->refPos >= desiredEntryPos ? startPos : endPosIncl;
+    }
+    int64_t middlePos = startPos + (endPosIncl - startPos) / 2;
+    VcfEntry *middleEntry = stList_get(vcfEntries, middlePos);
+    if (middleEntry->refPos < desiredEntryPos) {
+        return binarySearchVcfListForFirstIndexAfterRefPos2(vcfEntries, desiredEntryPos, middlePos, endPosIncl);
+    } else /*if (middleEntry->refPos >= desiredEntryPos)*/ {
+        return binarySearchVcfListForFirstIndexAfterRefPos2(vcfEntries, desiredEntryPos, startPos, middlePos);
+    }
+
+}
+int64_t binarySearchVcfListForFirstIndexAfterRefPos(stList *vcfEntries, int64_t refPos) {
+    if (stList_length(vcfEntries) == 0) return -1;
+    if (((VcfEntry*)stList_get(vcfEntries, stList_length(vcfEntries) - 1))->refPos < refPos) return -1;
+    if (((VcfEntry*)stList_get(vcfEntries, 0))->refPos > refPos) return 0;
+    return binarySearchVcfListForFirstIndexAfterRefPos2(vcfEntries, refPos, 0, stList_length(vcfEntries) - 1);
+}
+
+stList *getVcfEntriesForRegion2(stHash *vcfEntryMap, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos, double minQual) {
+    // get entries and sanity check
+    stList *vcfEntries = stHash_search(vcfEntryMap, refSeqName);
+    if (vcfEntries == NULL) {
+        char *logIdentifier = getLogIdentifier();
+        st_logInfo(" %s Reference Sequence %s not found in VCF entries\n", logIdentifier, refSeqName);
+        free(logIdentifier);
+        return NULL;
+    }
+
+    // the entries for this region we want
     stList *regionEntries = stList_construct3(0, (void(*)(void*))vcfEntry_destruct);
+
+    // binary search through list for start pos
+    int64_t startIdx = binarySearchVcfListForFirstIndexAfterRefPos(vcfEntries, startPos);
+    if (startIdx == -1) {
+        return regionEntries;
+    }
+
+    // get all entries from start until we're out
     int64_t qualityFilteredCount = 0;
-    for (int64_t i = 0; i < stList_length(vcfEntries); i++) {
+    for (int64_t i = startIdx; i < stList_length(vcfEntries); i++) {
         VcfEntry *e = stList_get(vcfEntries, i);
-        if (!stString_eq(refSeqName, e->refSeqName)) continue;
-        if (startPos > e->refPos) continue;
-        if (endPos <= e->refPos) continue;
+        assert(stString_eq(refSeqName, e->refSeqName));
+        assert(startPos <= e->refPos);
+        if (endPos <= e->refPos) break;
         if (minQual > e->phredQuality) {
             qualityFilteredCount++;
             continue;
@@ -209,8 +289,8 @@ stList *getVcfEntriesForRegion2(stList *vcfEntries, uint64_t *rleMap, char *refS
 }
 
 
-stList *getVcfEntriesForRegion(stList *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos) {
-    return getVcfEntriesForRegion2(vcfEntries, rleMap, refSeqName, startPos, endPos, DEFAULT_MIN_VCF_QUAL);
+stList *getVcfEntriesForRegion(stHash *vcfEntryMap, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos) {
+    return getVcfEntriesForRegion2(vcfEntryMap, rleMap, refSeqName, startPos, endPos, DEFAULT_MIN_VCF_QUAL);
 }
 
 

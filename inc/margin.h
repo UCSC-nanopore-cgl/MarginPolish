@@ -1382,10 +1382,11 @@ VcfEntry *vcfEntry_construct(char *refSeqName, int64_t refPos, int64_t rawRefPos
 void vcfEntry_destruct(VcfEntry *vcfEntry);
 RleString *getVcfEntryAlleleH1(VcfEntry *vcfEntry);
 RleString *getVcfEntryAlleleH2(VcfEntry *vcfEntry);
-stList *parseVcf(char *vcfFile, Params *params);
-stList *parseVcf2(char *vcfFile, char *regionStr, Params *params);
-stList *getVcfEntriesForRegion(stList *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos);
-stList *getVcfEntriesForRegion2(stList *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos, double minQual);
+stHash *parseVcf(char *vcfFile, Params *params);
+stHash *parseVcf2(char *vcfFile, char *regionStr, Params *params);
+int64_t binarySearchVcfListForFirstIndexAfterRefPos(stList *vcfEntries, int64_t refPos); // just exposed for testing
+stList *getVcfEntriesForRegion(stHash *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos);
+stList *getVcfEntriesForRegion2(stHash *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos, double minQual);
 stList *getAlleleSubstrings2(VcfEntry *entry, char *referenceSeq, int64_t refSeqLen, int64_t *refStartPos,
         int64_t *refEndPosExcl, int64_t expansion, bool useRunLengthEncoding);
 stList *getAlleleSubstrings(VcfEntry *entry, RleString *referenceSeq, Params *params);

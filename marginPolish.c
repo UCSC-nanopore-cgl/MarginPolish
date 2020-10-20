@@ -398,7 +398,7 @@ int main(int argc, char *argv[]) {
     stHash *referenceSequences = parseReferenceSequences(referenceFastaFile);
 
     // get vcf entries (if set)
-    stList *vcfEntries = NULL;
+    stHash *vcfEntries = NULL;
     if (vcfFile != NULL) {
         vcfEntries = parseVcf2(vcfFile, regionStr, params);
     }
@@ -657,6 +657,7 @@ int main(int argc, char *argv[]) {
                                    rleString_getNonRleToRleCoordinateMap(rleReference) : NULL;
                 chunkVcfEntries = getVcfEntriesForRegion(vcfEntries, rleMap, bamChunk->refSeqName,
                         bamChunk->chunkOverlapStart,  bamChunk->chunkOverlapEnd);
+                st_logInfo(" %s Got %"PRId64" VCF entries for region\n", logIdentifier, stList_length(chunkVcfEntries));
                 if (rleMap != NULL) free(rleMap);
             }
             do {
@@ -995,7 +996,7 @@ int main(int argc, char *argv[]) {
     if (outputRepeatCountFile != NULL) free(outputRepeatCountFile);
     if (vcfFile != NULL) {
         free(vcfFile);
-        stList_destruct(vcfEntries);
+        stHash_destruct(vcfEntries);
     }
     if (allReadIdsHap1 != NULL) stList_destruct(allReadIdsHap1);
     if (allReadIdsHap2 != NULL) stList_destruct(allReadIdsHap2);
