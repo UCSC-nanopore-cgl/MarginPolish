@@ -341,7 +341,8 @@ stList *getAlleleSubstrings2(VcfEntry *entry, char *referenceSeq, int64_t refSeq
 
     // put refStartPos and endPos back in poa-space
     (*refStartPos)++;
-    (*refEndPosExcl)++;
+    if (*refEndPosExcl != refSeqLen)
+        (*refEndPosExcl)++;
     return substrings;
 }
 
