@@ -166,8 +166,9 @@ void assertAlleleSubstringsCorrect2(CuTest *testCase, stList *alleleList, char *
     if (refPositions != NULL) {
         int64_t refPosStart = stIntTuple_get(refPositions, 0);
         int64_t refPosEnd = stIntTuple_get(refPositions, 1);
-        CuAssertTrue(testCase, refPosStart == expectedRefPosStart);
-        CuAssertTrue(testCase, refPosEnd == expectedRefPosEnd);
+        // these +1 are because these positions are in POA (1-based) space, not ref space (0-based)
+        CuAssertTrue(testCase, refPosStart == expectedRefPosStart+1);
+        CuAssertTrue(testCase, refPosEnd == expectedRefPosEnd+1);
     }
     for (int i = 0; i < stList_length(alleleList); i++) {
         char *allele = rleString_expand(stList_get(alleleList, i));
@@ -208,6 +209,8 @@ void test_vcfAlleleSubstrings(CuTest *testCase) {
     assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 10), "vcfTest2", 127, "C", "A", RLE);
 
     // get substrings
+    // this conversion is to put things in poa-space, which should be countered by allele substrings
+    vcfEntries = getVcfEntriesForRegion(vcfEntryMap, NULL, "vcfTest2", 0, 128);
     stHash *referenceSequences = parseReferenceSequences(VCF2_REF);
     char *refSeq = stHash_search(referenceSequences, "vcfTest2");
     RleString *refRleString = RLE ? rleString_construct(refSeq) : rleString_construct_no_rle(refSeq);

@@ -275,7 +275,7 @@ stList *getVcfEntriesForRegion2(stHash *vcfEntryMap, uint64_t *rleMap, char *ref
             qualityFilteredCount++;
             continue;
         }
-        int64_t refPos = e->refPos - startPos;
+        int64_t refPos = e->refPos - startPos + 1; // e->refPos is in 0-based space, poa is 1-based. convert here
         if (rleMap != NULL) {
             refPos = rleMap[refPos];
         }
@@ -305,6 +305,7 @@ stList *getAlleleSubstrings2(VcfEntry *entry, char *referenceSeq, int64_t refSeq
 
     // parameters for substringing
     int64_t pos = entry->refPos;
+    pos--; // at this point, reference positions are in poa-space (1-based), need to convert to ref-space (0-based)
 
     //get ref info
     char *refAllele = rleString_expand(stList_get(entry->alleles, 0));
@@ -334,8 +335,13 @@ stList *getAlleleSubstrings2(VcfEntry *entry, char *referenceSeq, int64_t refSeq
         free(fullAlleleSubstring);
     }
 
+    // cleanup
     free(prefix);
     free(suffix);
+
+    // put refStartPos and endPos back in poa-space
+    (*refStartPos)++;
+    (*refEndPosExcl)++;
     return substrings;
 }
 
