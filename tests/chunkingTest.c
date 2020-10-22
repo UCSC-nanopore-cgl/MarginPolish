@@ -8,8 +8,11 @@
 #include "CuTest.h"
 #include "margin.h"
 
-#define INPUT_BAM "../tests/data/chunkingTest/chunkingTest.bam"
 #define INPUT_PARAMS "../params/misc/allParams.no_rle.json"
+#define INPUT_BAM "../tests/data/chunkingTest/chunkingTest.bam"
+#define INPUT_MVVP_BAM "../tests/data/chunkingTest/chunkingTestMVVP.bam"
+#define INPUT_MVVP_VCF "../tests/data/chunkingTest/chunkingTestMVVP.vcf"
+#define INPUT_MVVP_REF "../tests/data/chunkingTest/chunkingTestMVVPReference.fa"
 
 static PolishParams *getParameters(uint64_t chunkSize, uint64_t chunkBoundary, bool includeSoftClipping) {
     PolishParams *params = polishParams_constructEmpty();
@@ -974,77 +977,170 @@ static void test_readAlignmentsWithSoftclippingChunkEnd(CuTest *testCase) {
     bamChunker_destruct(chunker);
 }
 
-ChunkToStitch **getChunksToStitchFromStrings(char **strings, int len) {
-    ChunkToStitch **chunks = st_calloc(len, sizeof(ChunkToStitch*));
-    for (int i = 0; i < len ; i++) {
-        chunks[i] = chunkToStitch_construct(stString_copy("TestContig"),i,FALSE, FALSE, FALSE);
-        chunks[i]->seqHap1 = stString_copy(strings[i]);
+
+static void test_readSubstringsFromVcf(CuTest *testCase) {
+    Params *params = params_readParams(INPUT_PARAMS);
+    params->polishParams->columnAnchorTrim = 4;
+    BamChunker *chunker = bamChunker_construct2(INPUT_MVVP_BAM, "contig_1:0-100000", params->polishParams, TRUE);
+    stHash *vcfEntries = parseVcf(INPUT_MVVP_VCF, params);
+    stHash *referenceSequences = parseReferenceSequences(INPUT_MVVP_REF);
+    CuAssertTrue(testCase, chunker->chunkCount == 1);
+
+    BamChunk *bamChunk = stList_get(chunker->chunks, 0);
+    RleString *chunkReferenceRLE = bamChunk_getReferenceSubstring(bamChunk, referenceSequences, params);
+    char *chunkReferenceRAW = rleString_expand(chunkReferenceRLE);
+    stList *chunkVcfEntries = getVcfEntriesForRegion(vcfEntries, NULL, bamChunk->refSeqName,
+                                                     bamChunk->chunkOverlapStart,  bamChunk->chunkOverlapEnd);
+    updateVcfEntriesWithSubstringsAndPositions(chunkVcfEntries, chunkReferenceRAW, strlen(chunkReferenceRAW), params);
+
+    stList *reads = stList_construct3(0, (void (*)(void *)) bamChunkReadVcfEntrySubstrings_destruct);
+    stList *filteredReads = stList_construct3(0, (void (*)(void *)) bamChunkReadVcfEntrySubstrings_destruct);
+    extractReadSubstringsAtVariantPositions(bamChunk, chunkVcfEntries, reads, filteredReads, params->polishParams);
+
+    for (int64_t i = 0; i < stList_length(reads); i++) {
+        BamChunkReadVcfEntrySubstrings *bcrves = stList_get(reads, i);
+        if (stString_eq(bcrves->readName, "read_1_extendsPastVariantBoundaries") || stString_eq(bcrves->readName, "read_1_extendsToVariantBoundaries") ||
+                stString_eq(bcrves->readName, "read_1_extendsPastVariantBoundariesSC") || stString_eq(bcrves->readName, "read_1_extendsToVariantBoundariesSC")) {
+            CuAssertTrue(testCase, stList_length(bcrves->readSubstrings) == 2);
+            for (int64_t j = 0; j < stList_length(bcrves->readSubstrings); j++) {
+                VcfEntry *vcfEntry = stList_get(bcrves->vcfEntries, j);
+                char *substring = stList_get(bcrves->readSubstrings, j);
+                switch (j) {
+                    case 0:
+                        CuAssertTrue(testCase, vcfEntry->refPos == 16);
+                        CuAssertStrEquals(testCase, "AAACCCGGG", substring);
+                        CuAssertStrEquals(testCase, substring, rleString_expand(stList_get(vcfEntry->alleleSubstrings, 0)));
+                        break;
+                    case 1:
+                        CuAssertTrue(testCase, vcfEntry->refPos == 31);
+                        CuAssertStrEquals(testCase, "ACCCCGGGG", substring);
+                        CuAssertStrEquals(testCase, substring, rleString_expand(stList_get(vcfEntry->alleleSubstrings, 0)));
+                        break;
+                    default:
+                        CuAssertTrue(testCase, FALSE);
+                }
+            }
+        } else if (stString_eq(bcrves->readName, "read_1_extendsIntoVariantBoundaries") || stString_eq(bcrves->readName, "read_1_extendsIntoVariantBoundariesSC")) {
+            CuAssertTrue(testCase, stList_length(bcrves->readSubstrings) == 2);
+            for (int64_t j = 0; j < stList_length(bcrves->readSubstrings); j++) {
+                VcfEntry *vcfEntry = stList_get(bcrves->vcfEntries, j);
+                char *substring = stList_get(bcrves->readSubstrings, j);
+                switch (j) {
+                    case 0:
+                        CuAssertTrue(testCase, vcfEntry->refPos == 16);
+                        CuAssertStrEquals(testCase, "CCCGGG", substring);
+                        break;
+                    case 1:
+                        CuAssertTrue(testCase, vcfEntry->refPos == 31);
+                        CuAssertStrEquals(testCase, "ACCCCG", substring);
+                        break;
+                    default:
+                        CuAssertTrue(testCase, FALSE);
+                }
+            }
+        } else if (stString_eq(bcrves->readName, "read_1_alignsToVariantPos") || stString_eq(bcrves->readName, "read_1_alignsToVariantPosSC")) {
+            CuAssertTrue(testCase, stList_length(bcrves->readSubstrings) == 2);
+            for (int64_t j = 0; j < stList_length(bcrves->readSubstrings); j++) {
+                VcfEntry *vcfEntry = stList_get(bcrves->vcfEntries, j);
+                char *substring = stList_get(bcrves->readSubstrings, j);
+                switch (j) {
+                    case 0:
+                        CuAssertTrue(testCase, vcfEntry->refPos == 16);
+                        CuAssertStrEquals(testCase, "CCGGG", substring);
+                        break;
+                    case 1:
+                        CuAssertTrue(testCase, vcfEntry->refPos == 31);
+                        CuAssertStrEquals(testCase, "ACCCC", substring);
+                        break;
+                    default:
+                        CuAssertTrue(testCase, FALSE);
+                }
+            }
+        } else if (stString_eq(bcrves->readName, "read_1_onlySpanVariantBoundaries") || stString_eq(bcrves->readName, "read_1_onlySpanVariantBoundariesSC")) {
+            CuAssertTrue(testCase, stList_length(bcrves->readSubstrings) == 0);
+        }
+
+
+        else if (stString_eq(bcrves->readName, "read_2_extendsPastVariantBoundaries") || stString_eq(bcrves->readName, "read_2_extendsToVariantBoundaries")) {
+            CuAssertTrue(testCase, stList_length(bcrves->readSubstrings) == 2);
+            for (int64_t j = 0; j < stList_length(bcrves->readSubstrings); j++) {
+                VcfEntry *vcfEntry = stList_get(bcrves->vcfEntries, j);
+                char *substring = stList_get(bcrves->readSubstrings, j);
+                switch (vcfEntry->refPos) {
+                    case 48:
+                        CuAssertTrue(testCase, vcfEntry->refPos == 48);
+                        CuAssertStrEquals(testCase, "ACCCCCGGG", substring);
+                        CuAssertStrEquals(testCase, substring, rleString_expand(stList_get(vcfEntry->alleleSubstrings, 0)));
+                        break;
+                    case 50:
+                        CuAssertTrue(testCase, vcfEntry->refPos == 50);
+                        CuAssertStrEquals(testCase, "CCCCGGGGG", substring);
+                        CuAssertStrEquals(testCase, substring, rleString_expand(stList_get(vcfEntry->alleleSubstrings, 0)));
+                        break;
+                    default:
+                        CuAssertTrue(testCase, FALSE);
+                }
+            }
+        } else if (stString_eq(bcrves->readName, "read_2_extendsIntoVariantBoundaries")) {
+            CuAssertTrue(testCase, stList_length(bcrves->readSubstrings) == 2);
+            for (int64_t j = 0; j < stList_length(bcrves->readSubstrings); j++) {
+                VcfEntry *vcfEntry = stList_get(bcrves->vcfEntries, j);
+                char *substring = stList_get(bcrves->readSubstrings, j);
+                switch (vcfEntry->refPos) {
+                    case 48:
+                        CuAssertTrue(testCase, vcfEntry->refPos == 48);
+                        CuAssertStrEquals(testCase, "CCCCCGGG", substring);
+                        break;
+                    case 50:
+                        CuAssertTrue(testCase, vcfEntry->refPos == 50);
+                        CuAssertStrEquals(testCase, "CCCCGGGG", substring);
+                        break;
+                    default:
+                        CuAssertTrue(testCase, FALSE);
+                }
+            }
+        } else if (stString_eq(bcrves->readName, "read_2_extendsIntoVariantBoundaries")) {
+            CuAssertTrue(testCase, stList_length(bcrves->readSubstrings) == 2);
+            for (int64_t j = 0; j < stList_length(bcrves->readSubstrings); j++) {
+                VcfEntry *vcfEntry = stList_get(bcrves->vcfEntries, j);
+                char *substring = stList_get(bcrves->readSubstrings, j);
+                switch (vcfEntry->refPos) {
+                    case 48:
+                        CuAssertTrue(testCase, vcfEntry->refPos == 48);
+                        CuAssertStrEquals(testCase, "CCCCCGGG", substring);
+                        break;
+                    case 50:
+                        CuAssertTrue(testCase, vcfEntry->refPos == 50);
+                        CuAssertStrEquals(testCase, "CCCCGGGG", substring);
+                        break;
+                    default:
+                        CuAssertTrue(testCase, FALSE);
+                }
+            }
+        } else if (stString_eq(bcrves->readName, "read_2_alignsToVariantPos")) {
+            CuAssertTrue(testCase, stList_length(bcrves->readSubstrings) == 2);
+            for (int64_t j = 0; j < stList_length(bcrves->readSubstrings); j++) {
+                VcfEntry *vcfEntry = stList_get(bcrves->vcfEntries, j);
+                char *substring = stList_get(bcrves->readSubstrings, j);
+                switch (vcfEntry->refPos) {
+                    case 48:
+                        CuAssertStrEquals(testCase, "CCG", substring);
+                        break;
+                    case 50:
+                        CuAssertStrEquals(testCase, "CCG", substring);
+                        break;
+                    default:
+                        CuAssertTrue(testCase, FALSE);
+                }
+            }
+        } else if (stString_eq(bcrves->readName, "read_2_onlySpanVariantBoundaries")) {
+            CuAssertTrue(testCase, stList_length(bcrves->readSubstrings) == 0);
+        } else {
+
+        }
     }
-    return chunks;
+
 }
-
-void test_mergeContigChunks(CuTest *testCase) {
-    Params *params = params_readParams(INPUT_PARAMS);
-    char **chunks = st_calloc(4, sizeof(char *));
-    chunks[0] = stString_copy("AAAAAAAACC");
-    chunks[1] = stString_copy("AACCCCCCCCGG");
-    chunks[2] = stString_copy("CCGGGGGGGGTT");
-    chunks[3] = stString_copy("GGTTTTTTTT");
-    ChunkToStitch **chunksToStitch = getChunksToStitchFromStrings(chunks, 4);
-    ChunkToStitch *result = mergeContigChunkz(chunksToStitch, 0, 4, FALSE, params);
-    CuAssertTrue(testCase, strcmp(result->seqHap1, "AAAAAAAACCCCCCCCGGGGGGGGTTTTTTTT") == 0);
-}
-
-
-void test_mergeContigChunksThreaded(CuTest *testCase) {
-    Params *params = params_readParams(INPUT_PARAMS);
-    params->polishParams->chunkBoundary = 2;
-    char *chunks[16];// = st_calloc(16, sizeof(char*));
-    chunks[0] = stString_copy("AAAAAAAACC");
-    chunks[1] = stString_copy("AACCCCCCCCGG");
-    chunks[2] = stString_copy("CCGGGGGGGGTT");
-    chunks[3] = stString_copy("GGTTTTTTTTAA");
-    chunks[4] = stString_copy("TTAAAAAAAACC");
-    chunks[5] = stString_copy("AACCCCCCCCGG");
-    chunks[6] = stString_copy("CCGGGGGGGGTT");
-    chunks[7] = stString_copy("GGTTTTTTTTAA");
-    chunks[8] = stString_copy("TTAAAAAAAACC");
-    chunks[9] = stString_copy("AACCCCCCCCGG");
-    chunks[10] = stString_copy("CCGGGGGGGGTT");
-    chunks[11] = stString_copy("GGTTTTTTTTAA");
-    chunks[12] = stString_copy("TTAAAAAAAACC");
-    chunks[13] = stString_copy("AACCCCCCCCGG");
-    chunks[14] = stString_copy("CCGGGGGGGGTT");
-    chunks[15] = stString_copy("GGTTTTTTTT");
-    char *truth = "AAAAAAAACCCCCCCCGGGGGGGGTTTTTTTTAAAAAAAACCCCCCCCGGGGGGGGTTTTTTTTAAAAAAAACCCCCCCCGGGGGGGGTTTTTTTTAAAAAAAACCCCCCCCGGGGGGGGTTTTTTTT";
-    char* contig;
-
-    ChunkToStitch **chunksToStitch = getChunksToStitchFromStrings(chunks, 16);
-    contig = mergeContigChunkzThreaded(chunksToStitch, 0, 16, 1, FALSE, params, "testContig")->seqHap1;
-    CuAssertTrue(testCase, strcmp(contig, truth) == 0);
-    chunksToStitch = getChunksToStitchFromStrings(chunks, 16);
-    contig = mergeContigChunkzThreaded(chunksToStitch, 0, 16, 2, FALSE, params, "testContig")->seqHap1;
-    CuAssertTrue(testCase, strcmp(contig, truth) == 0);
-    chunksToStitch = getChunksToStitchFromStrings(chunks, 16);
-    contig = mergeContigChunkzThreaded(chunksToStitch, 0, 16, 3, FALSE, params, "testContig")->seqHap1;
-    CuAssertTrue(testCase, strcmp(contig, truth) == 0);
-    chunksToStitch = getChunksToStitchFromStrings(chunks, 16);
-    contig = mergeContigChunkzThreaded(chunksToStitch, 0, 16, 4, FALSE, params, "testContig")->seqHap1;
-    CuAssertTrue(testCase, strcmp(contig, truth) == 0);
-    chunksToStitch = getChunksToStitchFromStrings(chunks, 16);
-    contig = mergeContigChunkzThreaded(chunksToStitch, 0, 16, 5, FALSE, params, "testContig")->seqHap1;
-    CuAssertTrue(testCase, strcmp(contig, truth) == 0);
-    chunksToStitch = getChunksToStitchFromStrings(chunks, 16);
-    contig = mergeContigChunkzThreaded(chunksToStitch, 0, 16, 6, FALSE, params, "testContig")->seqHap1;
-    CuAssertTrue(testCase, strcmp(contig, truth) == 0);
-    chunksToStitch = getChunksToStitchFromStrings(chunks, 16);
-    contig = mergeContigChunkzThreaded(chunksToStitch, 0, 16, 7, FALSE, params, "testContig")->seqHap1;
-    CuAssertTrue(testCase, strcmp(contig, truth) == 0 );
-    chunksToStitch = getChunksToStitchFromStrings(chunks, 16);
-    contig = mergeContigChunkzThreaded(chunksToStitch, 0, 16, 8, FALSE, params, "testContig")->seqHap1;
-    CuAssertTrue(testCase, strcmp(contig, truth) == 0 );
-}
-
 
 CuSuite *chunkingTestSuite(void) {
     CuSuite *suite = CuSuiteNew();
@@ -1061,8 +1157,7 @@ CuSuite *chunkingTestSuite(void) {
     SUITE_ADD_TEST(suite, test_readAlignmentsWithSoftclippingChunkStart);
     SUITE_ADD_TEST(suite, test_readAlignmentsWithoutSoftclippingChunkEnd);
     SUITE_ADD_TEST(suite, test_readAlignmentsWithSoftclippingChunkEnd);
-    SUITE_ADD_TEST(suite, test_mergeContigChunks);
-    SUITE_ADD_TEST(suite, test_mergeContigChunksThreaded);
+    SUITE_ADD_TEST(suite, test_readSubstringsFromVcf);
 
     return suite;
 }

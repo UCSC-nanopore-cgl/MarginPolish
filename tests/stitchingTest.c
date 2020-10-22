@@ -9,6 +9,8 @@ static char *paramsFile = "../params/ont/r9.4/allParams.np.human.r94-g344.json";
 static char *outputSequenceFile = "./testStitchingSequenceFile.fa";
 static char *outputPoaFile = "./testStitchingPoaFile.csv";
 static char *outputRepeatCountFile = "./testStitchingRepeatCountFile.csv";
+static char *noRleParamsFile = "../params/misc/allParams.no_rle.json";
+
 
 void checkCSV(CuTest *testCase, char *csvFile, char *sequence) {
     /*
@@ -52,11 +54,14 @@ void test_stitching(CuTest *testCase) {
     /*
      * Runs the stitcher with a set of chunks and checks we get back the original sequence
      */
+    setPairwiseAlignerKmerSize(2);
+    setMinOverlapAnchorPairs(1);
 
     for (int64_t test = 0; test < 10; test++) {
         // Get params
         Params *params = params_readParams(paramsFile);
-        params->polishParams->useRunLengthEncoding = 0; // Turn off RLE for this test to work
+        params->polishParams->useRunLengthEncoding = FALSE; // Turn off RLE for this test to work
+        params->polishParams->chunkBoundary = 3;
 
         // Sequences
         char *sequence = "AAAAAAAAAATTTTTTTTTTCCCCCCCCCCGGGGGGGGGG";
@@ -130,8 +135,86 @@ void test_stitching(CuTest *testCase) {
     }
 }
 
+
+ChunkToStitch **getChunksToStitchFromStrings(char **strings, int len) {
+    ChunkToStitch **chunks = st_calloc(len, sizeof(ChunkToStitch*));
+    for (int i = 0; i < len ; i++) {
+        chunks[i] = chunkToStitch_construct(stString_copy("TestContig"),i,FALSE, FALSE, FALSE);
+        chunks[i]->seqHap1 = stString_copy(strings[i]);
+    }
+    return chunks;
+}
+
+void test_mergeContigChunks(CuTest *testCase) {
+    Params *params = params_readParams(noRleParamsFile);
+    params->polishParams->chunkBoundary = 16;
+    char **chunks = st_calloc(4, sizeof(char *));
+    chunks[0] = stString_copy("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACCCCCCCCCCCCCCCC");
+    chunks[1] = stString_copy("AAAAAAAAAAAAAAAACCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCGGGGGGGGGGGGGGGG");
+    chunks[2] = stString_copy("CCCCCCCCCCCCCCCCGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGTTTTTTTTTTTTTTTT");
+    chunks[3] = stString_copy("GGGGGGGGGGGGGGGGTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT");
+    ChunkToStitch **chunksToStitch = getChunksToStitchFromStrings(chunks, 4);
+    ChunkToStitch *result = mergeContigChunkz(chunksToStitch, 0, 4, FALSE, params);
+    CuAssertStrEquals(testCase, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT", result->seqHap1);
+}
+
+
+void test_mergeContigChunksThreaded(CuTest *testCase) {
+    Params *params = params_readParams(noRleParamsFile);
+    //TODO needs to be 16
+    params->polishParams->chunkBoundary = 2;
+    setPairwiseAlignerKmerSize(2);
+    char *chunks[16];// = st_calloc(16, sizeof(char*));
+    chunks[0] = stString_copy("AAAAAAAACC");
+    chunks[1] = stString_copy("AACCCCCCCCGG");
+    chunks[2] = stString_copy("CCGGGGGGGGTT");
+    chunks[3] = stString_copy("GGTTTTTTTTAA");
+    chunks[4] = stString_copy("TTAAAAAAAACC");
+    chunks[5] = stString_copy("AACCCCCCCCGG");
+    chunks[6] = stString_copy("CCGGGGGGGGTT");
+    chunks[7] = stString_copy("GGTTTTTTTTAA");
+    chunks[8] = stString_copy("TTAAAAAAAACC");
+    chunks[9] = stString_copy("AACCCCCCCCGG");
+    chunks[10] = stString_copy("CCGGGGGGGGTT");
+    chunks[11] = stString_copy("GGTTTTTTTTAA");
+    chunks[12] = stString_copy("TTAAAAAAAACC");
+    chunks[13] = stString_copy("AACCCCCCCCGG");
+    chunks[14] = stString_copy("CCGGGGGGGGTT");
+    chunks[15] = stString_copy("GGTTTTTTTT");
+    char *truth = "AAAAAAAACCCCCCCCGGGGGGGGTTTTTTTTAAAAAAAACCCCCCCCGGGGGGGGTTTTTTTTAAAAAAAACCCCCCCCGGGGGGGGTTTTTTTTAAAAAAAACCCCCCCCGGGGGGGGTTTTTTTT";
+    char* contig;
+
+    ChunkToStitch **chunksToStitch = getChunksToStitchFromStrings(chunks, 16);
+    contig = mergeContigChunkzThreaded(chunksToStitch, 0, 16, 1, FALSE, params, "testContig")->seqHap1;
+    CuAssertTrue(testCase, strcmp(contig, truth) == 0);
+    chunksToStitch = getChunksToStitchFromStrings(chunks, 16);
+    contig = mergeContigChunkzThreaded(chunksToStitch, 0, 16, 2, FALSE, params, "testContig")->seqHap1;
+    CuAssertTrue(testCase, strcmp(contig, truth) == 0);
+    chunksToStitch = getChunksToStitchFromStrings(chunks, 16);
+    contig = mergeContigChunkzThreaded(chunksToStitch, 0, 16, 3, FALSE, params, "testContig")->seqHap1;
+    CuAssertTrue(testCase, strcmp(contig, truth) == 0);
+    chunksToStitch = getChunksToStitchFromStrings(chunks, 16);
+    contig = mergeContigChunkzThreaded(chunksToStitch, 0, 16, 4, FALSE, params, "testContig")->seqHap1;
+    CuAssertTrue(testCase, strcmp(contig, truth) == 0);
+    chunksToStitch = getChunksToStitchFromStrings(chunks, 16);
+    contig = mergeContigChunkzThreaded(chunksToStitch, 0, 16, 5, FALSE, params, "testContig")->seqHap1;
+    CuAssertTrue(testCase, strcmp(contig, truth) == 0);
+    chunksToStitch = getChunksToStitchFromStrings(chunks, 16);
+    contig = mergeContigChunkzThreaded(chunksToStitch, 0, 16, 6, FALSE, params, "testContig")->seqHap1;
+    CuAssertTrue(testCase, strcmp(contig, truth) == 0);
+    chunksToStitch = getChunksToStitchFromStrings(chunks, 16);
+    contig = mergeContigChunkzThreaded(chunksToStitch, 0, 16, 7, FALSE, params, "testContig")->seqHap1;
+    CuAssertTrue(testCase, strcmp(contig, truth) == 0 );
+    chunksToStitch = getChunksToStitchFromStrings(chunks, 16);
+    contig = mergeContigChunkzThreaded(chunksToStitch, 0, 16, 8, FALSE, params, "testContig")->seqHap1;
+    CuAssertTrue(testCase, strcmp(contig, truth) == 0 );
+}
+
+
 CuSuite *stitchingTestSuite(void) {
     CuSuite *suite = CuSuiteNew();
-    SUITE_ADD_TEST(suite, test_stitching);
+//    SUITE_ADD_TEST(suite, test_stitching);
+    SUITE_ADD_TEST(suite, test_mergeContigChunks);
+//    SUITE_ADD_TEST(suite, test_mergeContigChunksThreaded);
     return suite;
 }

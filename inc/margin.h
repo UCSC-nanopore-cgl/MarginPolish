@@ -1057,6 +1057,14 @@ typedef struct _bamChunkRead {
 	int64_t fullReadLength;   // total length for whole read (not just chunk portion)
 } BamChunkRead;
 
+typedef struct _bamChunkSubstrings {
+    char *readName;            // read name
+    bool forwardStrand;            // whether the alignment is matched to the forward strand
+    int64_t fullReadLength;   // total length for whole read (not just chunk portion)
+    stList *readSubstrings;
+    stList *readSubstringQualities;
+    stList *vcfEntries;
+} BamChunkReadVcfEntrySubstrings;
 
 BamChunkRead *bamChunkRead_construct2(char *readName, char *nucleotides, uint8_t *qualities, bool forwardStrand,
                                       bool useRunLengthEncoding);
@@ -1067,6 +1075,22 @@ BamChunkRead *bamChunkRead_construct3(char *readName, char *nucleotides, uint8_t
 BamChunkRead *bamChunkRead_constructCopy(BamChunkRead *copy);
 
 void bamChunkRead_destruct(BamChunkRead *bamChunkRead);
+
+
+BamChunkReadVcfEntrySubstrings *bamChunkReadVcfEntrySubstrings_construct(char *readName, bool forwardStrand,
+                                                                         int64_t fullReadLength);
+
+BamChunkReadVcfEntrySubstrings *bamChunkReadVcfEntrySubstrings_construct2(char *readName, bool forwardStrand,
+                                                                          int64_t fullReadLength,
+                                                                          stList *readSubstrings,
+                                                                          stList *readSubstringQualities,
+                                                                          stList *vcfEntries);
+
+void bamChunkReadVcfEntrySubstrings_destruct(BamChunkReadVcfEntrySubstrings *bcrs);
+
+void bamChunkReadVcfEntrySubstrings_saveSubstring(BamChunkReadVcfEntrySubstrings *bcrs, char *read, uint8_t *qualities,
+                                                  VcfEntry *vcfEntry);
+
 
 /*
  * Generates the expanded non-rle version of bam chunk read nucleotide sequence.
@@ -1492,6 +1516,8 @@ uint32_t convertToReadsAndAlignments(BamChunk *bamChunk, RleString *reference, s
 uint32_t convertToReadsAndAlignmentsWithFiltered(BamChunk *bamChunk, RleString *reference, stList *reads,
                                                  stList *alignments, stList *filteredReads, stList *filteredAlignments,
                                                  PolishParams *polishParams);
+uint32_t extractReadSubstringsAtVariantPositions(BamChunk *bamChunk, stList *vcfEntries, stList *reads,
+                                                 stList *filteredReads, PolishParams *polishParams);
 
 bool downsampleViaReadLikelihood(int64_t intendedDepth, BamChunk *bamChunk, stList *inputReads, stList *inputAlignments,
                                  stList *maintainedReads, stList *maintainedAlignments, stList *discardedReads,

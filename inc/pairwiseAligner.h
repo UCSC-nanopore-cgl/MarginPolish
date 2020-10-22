@@ -320,4 +320,10 @@ stList *filterPairwiseAlignmentToMakePairsOrdered(stList *alignedPairs, SymbolSt
  */
 stList *getKmerAlignmentAnchors(SymbolString seqX, SymbolString seqY, uint64_t anchorExpansion);
 
+/*
+ * Parameters for testing
+ */
+void setPairwiseAlignerKmerSize(int64_t kmerSize);
+void setMinOverlapAnchorPairs(int64_t minOverlapAnchorPairs);
+
 #endif /* PAIRWISEALIGNER_H_ */

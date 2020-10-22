@@ -176,10 +176,10 @@ int main(int argc, char *argv[]) {
         st_errAbort("Could not read from reference fastafile: %s\n", referenceFastaFile);
     }
     if (access(paramsFile, R_OK) != 0) {
-        st_errAbort("Could not read from params file: %s\n", paramsFile);
-    }
-    if (vcfFile != NULL && access(paramsFile, R_OK) != 0) {
         st_errAbort("Could not read from vcf file: %s\n", vcfFile);
+    }
+    if (access(paramsFile, R_OK) != 0) {
+        st_errAbort("Could not read from params file: %s\n", paramsFile);
     }
 
     // Initialization from arguments
@@ -330,23 +330,31 @@ int main(int argc, char *argv[]) {
                         PRId64". Perhaps the BAM and REF are mismatched?",
                         bamChunk->refSeqName, fullRefLen, chunkIdx, bamChunk->chunkOverlapStart);
         }
-        RleString *rleReference = bamChunk_getReferenceSubstring(bamChunk, referenceSequences, params);
         st_logInfo(">%s Going to process a chunk (~%"PRId64"x) for reference sequence: %s, starting at: %i and ending at: %i\n",
                    logIdentifier, bamChunk->estimatedDepth, bamChunk->refSeqName, (int) bamChunk->chunkOverlapStart,
                    (int) (fullRefLen < bamChunk->chunkOverlapEnd ? fullRefLen : bamChunk->chunkOverlapEnd));
 
+        // get ref string
+        RleString *chunkReferenceRLE = bamChunk_getReferenceSubstring(bamChunk, referenceSequences, params);
+        char *chunkReferenceRAW = rleString_expand(chunkReferenceRLE);
+
+        // get VCF string
+        uint64_t *rleMap = params->polishParams->useRunLengthEncoding ?
+                           rleString_getNonRleToRleCoordinateMap(chunkReferenceRLE) : NULL;
+        stList *chunkVcfEntries = getVcfEntriesForRegion(vcfEntries, rleMap, bamChunk->refSeqName,
+                                                 bamChunk->chunkOverlapStart,  bamChunk->chunkOverlapEnd);
+        updateVcfEntriesWithSubstringsAndPositions(chunkVcfEntries, chunkReferenceRAW, strlen(chunkReferenceRAW), params);
+        if (rleMap != NULL) free(rleMap);
+
         // Convert bam lines into corresponding reads and alignments
         st_logInfo(" %s Parsing input reads from file: %s\n", logIdentifier, bamInFile);
-        stList *reads = stList_construct3(0, (void (*)(void *)) bamChunkRead_destruct);
-        stList *alignments = stList_construct3(0, (void (*)(void *)) stList_destruct);
-        stList *filteredReads = stList_construct3(0, (void (*)(void *)) bamChunkRead_destruct);
-        stList *filteredAlignments = stList_construct3(0, (void (*)(void *)) stList_destruct);
-        convertToReadsAndAlignmentsWithFiltered(bamChunk, rleReference, reads, alignments,
-            filteredReads, filteredAlignments, params->polishParams);
-        removeReadsOnlyInChunkBoundary(bamChunk, reads, alignments, logIdentifier);
+        stList *reads = stList_construct3(0, (void (*)(void *)) bamChunkReadVcfEntrySubstrings_destruct);
+        stList *filteredReads = stList_construct3(0, (void (*)(void *)) bamChunkReadVcfEntrySubstrings_destruct);
+        extractReadSubstringsAtVariantPositions(bamChunk, chunkVcfEntries, reads, filteredReads, params->polishParams);
 
         // do downsampling if appropriate
-        if (params->polishParams->maxDepth > 0) {
+        //TODO downsample
+        /*if (params->polishParams->maxDepth > 0) {
             // get downsampling structures
             stList *maintainedReads = stList_construct3(0, (void (*)(void *)) bamChunkRead_destruct);
             stList *maintainedAlignments = stList_construct3(0, (void (*)(void *)) stList_destruct);
@@ -375,26 +383,7 @@ int main(int argc, char *argv[]) {
                 stList_destruct(maintainedReads);
                 stList_destruct(maintainedAlignments);
             }
-        }
-
-        // prep for polishing
-        Poa *poa = NULL; // The poa alignment
-        char *polishedConsensusString = NULL; // The polished reference string
-
-        // Run the polishing method
-        int64_t totalNucleotides = 0;
-        if (st_getLogLevel() >= info) {
-            for (int64_t u = 0; u < stList_length(reads); u++) {
-                totalNucleotides += strlen(((BamChunkRead *) stList_get(reads, u))->rleRead->rleString);
-            }
-            st_logInfo(" %s Running polishing algorithm with %"PRId64" reads and %"PRIu64"K nucleotides\n",
-                       logIdentifier, stList_length(reads), totalNucleotides >> 10);
-        }
-
-        // Generate partial order alignment (POA) (destroys rleAlignments in the process)
-        st_logInfo(" %s Getting alignment likelihoods from CIGAR string, and not mutating POA\n", logIdentifier);
-        poa = poa_realignOnlyAnchorAlignments(reads, alignments, rleReference, params->polishParams);
-
+        }*/
 
         time_t primaryPhasingStart = time(NULL);
 
@@ -405,14 +394,6 @@ int main(int argc, char *argv[]) {
         stSet *readsBelongingToHap1 = NULL, *readsBelongingToHap2 = NULL;
         stGenomeFragment *gf = NULL;
         stReference *ref = NULL;
-        stList *chunkVcfEntries = NULL;
-        if (vcfEntries != NULL) {
-            uint64_t *rleMap = params->polishParams->useRunLengthEncoding ?
-                               rleString_getNonRleToRleCoordinateMap(rleReference) : NULL;
-            chunkVcfEntries = getVcfEntriesForRegion(vcfEntries, rleMap, bamChunk->refSeqName,
-                    bamChunk->chunkOverlapStart,  bamChunk->chunkOverlapEnd);
-            if (rleMap != NULL) free(rleMap);
-        }
 
         // Get the bubble graph representation
         bg = bubbleGraph_constructFromPoaAndVCF(poa, reads, chunkVcfEntries, params->polishParams, TRUE);
@@ -449,27 +430,12 @@ int main(int argc, char *argv[]) {
                        (int) totalHets, (int) gf->length, (float) totalHets / gf->length);
         }
 
-
-        st_logInfo(" %s Building POA for each haplotype\n", logIdentifier);
-        uint64_t *hap1 = getPaddedHaplotypeString(gf->haplotypeString1, gf, bg, params);
-        uint64_t *hap2 = getPaddedHaplotypeString(gf->haplotypeString2, gf, bg, params);
-
-        Poa *poa_hap1 = bubbleGraph_getNewPoa(bg, hap1, poa, reads, params);
-        Poa *poa_hap2 = bubbleGraph_getNewPoa(bg, hap2, poa, reads, params);
-
-        if(params->polishParams->useRunLengthEncoding) {
-            st_logInfo(" %s Using read phasing to reestimate repeat counts in phased manner\n", logIdentifier);
-            poa_estimatePhasedRepeatCountsUsingBayesianModel(poa_hap1, reads, params->polishParams->repeatSubMatrix,
-                                                             readsBelongingToHap1, readsBelongingToHap2, params->polishParams);
-            poa_estimatePhasedRepeatCountsUsingBayesianModel(poa_hap2, reads, params->polishParams->repeatSubMatrix,
-                                                             readsBelongingToHap2, readsBelongingToHap1, params->polishParams);
-        }
         st_logInfo(" %s Phased primary reads in %d sec\n", logIdentifier, time(NULL) - primaryPhasingStart);
 
         // debugging output
         char *chunkBubbleOutFilename = NULL;
         FILE *chunkBubbleOut = NULL;
-        uint64_t *reference_rleToNonRleCoordMap = rleString_getRleToNonRleCoordinateMap(rleReference);
+        uint64_t *reference_rleToNonRleCoordMap = rleString_getRleToNonRleCoordinateMap(chunkReferenceRLE);
         if (outputPhasingState) {
             // save info
             chunkBubbleOutFilename = stString_print("%s.C%05"PRId64".%s-%"PRId64"-%"PRId64".phasingInfo.json",
@@ -482,44 +448,27 @@ int main(int argc, char *argv[]) {
         }
 
         // should included filtered reads in output
-            // get reads
-            if (partitionFilteredReads) {
-                for (int64_t bcrIdx = 0; bcrIdx < stList_length(reads); bcrIdx++) {
-                    BamChunkRead *bcr = stList_get(reads, bcrIdx);
-                    if (!stSet_search(readsBelongingToHap1, bcr) && !stSet_search(readsBelongingToHap2, bcr)) {
-                        // was filtered in some form
-                        stList_append(filteredReads, bamChunkRead_constructCopy(bcr));
-                        stList_append(filteredAlignments, copyListOfIntTuples(stList_get(alignments, bcrIdx)));
-                    }
-                }
+        // get reads
+        if (partitionFilteredReads) {
+            for (int64_t bcrIdx = 0; bcrIdx < stList_length(reads); bcrIdx++) {
+                //TODO not bcr anymore
+                /*BamChunkRead *bcr = stList_get(reads, bcrIdx);
+                if (!stSet_search(readsBelongingToHap1, bcr) && !stSet_search(readsBelongingToHap2, bcr)) {
+                    // was filtered in some form
+                    stList_append(filteredReads, bamChunkRead_constructCopy(bcr));
+                }*/
             }
-            st_logInfo(" %s Assigning %"PRId64" filtered reads to haplotypes\n", logIdentifier, stList_length(filteredReads));
-            removeReadsOnlyInChunkBoundary(bamChunk, filteredReads, filteredAlignments, logIdentifier);
-
-            time_t filteredPhasingStart = time(NULL);
-            Poa *filteredPoa = NULL;
-            if (skipRealignment) {
-                filteredPoa = poa_realignOnlyAnchorAlignments(filteredReads, filteredAlignments, rleReference, params->polishParams);
-            } else {
-                filteredPoa = poa_realign(filteredReads, filteredAlignments, rleReference, params->polishParams);
-            }
-
-            bubbleGraph_partitionFilteredReads(filteredPoa, filteredReads, gf, bg, bamChunk,
-                                               reference_rleToNonRleCoordMap, readsBelongingToHap1,
-                                               readsBelongingToHap2, params->polishParams,
-                                               chunkBubbleOut, logIdentifier);
-            poa_destruct(filteredPoa);
-            st_logInfo(" %s Partitioned filtered reads in %d sec.\n", logIdentifier, time(NULL) - filteredPhasingStart);
-
-        // debugging output for state
-        if (outputPhasingState) {
-            writePhasedReadInfoJSON(bamChunk, reads, alignments, filteredReads, filteredAlignments,
-                                    readsBelongingToHap1, readsBelongingToHap2, reference_rleToNonRleCoordMap,
-                                    chunkBubbleOut);
-            fprintf(chunkBubbleOut, "\n}\n");
-            fclose(chunkBubbleOut);
-            free(chunkBubbleOutFilename);
         }
+        st_logInfo(" %s Assigning %"PRId64" filtered reads to haplotypes\n", logIdentifier, stList_length(filteredReads));
+
+        time_t filteredPhasingStart = time(NULL);
+
+        bubbleGraph_partitionFilteredReads(filteredPoa, filteredReads, gf, bg, bamChunk,
+                                           reference_rleToNonRleCoordMap, readsBelongingToHap1,
+                                           readsBelongingToHap2, params->polishParams,
+                                           chunkBubbleOut, logIdentifier);
+        st_logInfo(" %s Partitioned filtered reads in %d sec.\n", logIdentifier, time(NULL) - filteredPhasingStart);
+
 
         // Output
         outputChunkers_processChunkSequencePhased(outputChunkers, threadIdx, chunkIdx, bamChunk->refSeqName,
@@ -527,34 +476,26 @@ int main(int argc, char *argv[]) {
                                                   readsBelongingToHap1, readsBelongingToHap2, gf, params);
 
         // Cleanup
-        free(hap1);
-        free(hap2);
         if (chunkVcfEntries != NULL) stList_destruct(chunkVcfEntries);
         stSet_destruct(readsBelongingToHap1);
         stSet_destruct(readsBelongingToHap2);
         bubbleGraph_destruct(bg);
         stGenomeFragment_destruct(gf);
         stReference_destruct(ref);
-        poa_destruct(poa_hap1);
-        poa_destruct(poa_hap2);
         stHash_destruct(readsToPSeqs);
         free(reference_rleToNonRleCoordMap);
 
 
         // report timing
         if (st_getLogLevel() >= info) {
-            st_logInfo(">%s Chunk with %"PRId64" reads and %"PRIu64"K nucleotides processed in %d sec\n",
-                       logIdentifier, stList_length(reads), totalNucleotides >> 10,
-                       (int) (time(NULL) - chunkStartTime));
+            st_logInfo(">%s Chunk with %"PRId64" reads processed in %d sec\n",
+                       logIdentifier, stList_length(reads), (int) (time(NULL) - chunkStartTime));
         }
 
         // Cleanup
-        rleString_destruct(rleReference);
-        poa_destruct(poa);
+        rleString_destruct(chunkReferenceRLE);
         stList_destruct(reads);
-        stList_destruct(alignments);
         stList_destruct(filteredReads);
-        stList_destruct(filteredAlignments);
         free(logIdentifier);
     }
 

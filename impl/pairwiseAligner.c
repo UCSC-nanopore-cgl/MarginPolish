@@ -1516,7 +1516,10 @@ stList *filterPairwiseAlignmentToMakePairsOrdered(stList *alignedPairs, SymbolSt
  * Code to create quick and dirty alignment anchors.
  */
 
-#define KMER_SIZE 20 // that's an alphabet of 4^20 ~= 1x10^12 for DNA/RNA
+static int64_t KMER_SIZE = 20; // that's an alphabet of 4^20 ~= 1x10^12 for DNA/RNA
+void setPairwiseAlignerKmerSize(int64_t kmerSize) {
+    KMER_SIZE = kmerSize;
+}
 
 uint64_t kmerKey(const void *k) {
     uint64_t hash = 0; //5381;

@@ -393,6 +393,12 @@ void chunkToStitch_phaseAdjacentChunks(ChunkToStitch *chunk, stHash *readsInHap1
     free(logIdentifier);
 }
 
+
+static int64_t MIN_OVERLAP_ANCHOR_PAIRS = 2;
+void setMinOverlapAnchorPairs(int64_t minOverlapAnchorPairs) {
+    MIN_OVERLAP_ANCHOR_PAIRS = minOverlapAnchorPairs;
+}
+
 char *getLargeNucleotideSequenceSummary(char *sequence) {
     char *tmpSeq;
     if (strlen(sequence) > 17) {
@@ -447,9 +453,10 @@ int64_t removeOverlap(char *prefixString, int64_t prefixStringLength, char *suff
     stList *alignedPairs = NULL;
 
     // failure case for anchoring, 0 or 1 anchors
-    if (stList_length(anchorPairs) < 2) {
+    if (stList_length(anchorPairs) < MIN_OVERLAP_ANCHOR_PAIRS) {
         st_logInfo(" %s Anchoring for overlap alignment (lengths p:%"PRId64", s:%"PRId64") failed for having %"PRId64" "
-                   "entries\n", logIdentifier, sX.length, sY.length, stList_length(anchorPairs));
+                   "(< %"PRId64") entries\n", logIdentifier, sX.length, sY.length, stList_length(anchorPairs),
+                   MIN_OVERLAP_ANCHOR_PAIRS);
 
         // Do not attempt alignment
         alignedPairs = stList_construct();

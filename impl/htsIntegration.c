@@ -1260,3 +1260,327 @@ void poa_writeSupplementalChunkInformationDiploid(char *outputBase, int64_t chun
     }
 
 }
+
+void saveStartingVcfEntries(stList *vcfEntries, stHash *currentVcfEntries, int64_t *nextVcfEntriesIndex, int64_t cigarIdxInRef,
+        int64_t refCigarModification, int64_t firstNonSoftclipAlignedReadIdxInChunk, int64_t cigarIdxInSeq,
+        int64_t startSoftclipAmount) {
+
+    VcfEntry *nextVcfEntry = *nextVcfEntriesIndex < stList_length(vcfEntries) ?
+                             stList_get(vcfEntries, *nextVcfEntriesIndex) : NULL;
+    while (nextVcfEntry != NULL && nextVcfEntry->refAlnStart <= cigarIdxInRef + refCigarModification) {
+        // in theory, we should always land exactly on the right position, never skip it
+        assert( firstNonSoftclipAlignedReadIdxInChunk == cigarIdxInSeq ||
+                nextVcfEntry->refAlnStart == cigarIdxInRef + refCigarModification);
+        // save in list of vcf entries spanning current pos
+        stHash_insert(currentVcfEntries, nextVcfEntry, (void*)cigarIdxInSeq + startSoftclipAmount);
+        // increment (it is possible to have mulitple entries at same pos)
+        (*nextVcfEntriesIndex)++;
+        nextVcfEntry = *nextVcfEntriesIndex < stList_length(vcfEntries) ?
+                       stList_get(vcfEntries, *nextVcfEntriesIndex) : NULL;
+    }
+}
+
+
+void saveFinishedVcfEntries(stHash *currentVcfEntries, int64_t currentAlnRefPos, int64_t cigarIdxInSeq,
+        int64_t startSoftclipAmount, const uint8_t *seqBits, const uint8_t *qualBits, BamChunkReadVcfEntrySubstrings *bcrves,
+        bool endOfRead) {
+
+    // remove old vcf entries
+    stList *noLongerCurrentVcfEntries = stList_construct();
+    stHashIterator *currVcfEntryItor = stHash_getIterator(currentVcfEntries);
+    VcfEntry *currVcfEntry = NULL;
+    while ((currVcfEntry = stHash_getNext(currVcfEntryItor)) != NULL) {
+        if (endOfRead || currVcfEntry->refAlnStopExcl <= currentAlnRefPos) {
+            // in theory we should always land exactly on the end pos
+            assert(endOfRead || currVcfEntry->refAlnStopExcl == currentAlnRefPos);
+
+            // read start and stop pos
+            int64_t seqStartPos = (int64_t) stHash_search(currentVcfEntries, currVcfEntry);
+            int64_t seqEndPos = cigarIdxInSeq + startSoftclipAmount;
+
+            // length of seq
+            int64_t seqLen = seqEndPos - seqStartPos;
+            if (endOfRead && currentAlnRefPos <= currVcfEntry->refPos) {
+                stList_append(noLongerCurrentVcfEntries, currVcfEntry);
+                continue;
+            }
+            assert(seqLen > 0);
+
+            // get sequence
+            char *seq = st_calloc(seqLen + 1, sizeof(char));
+            int64_t idxInOutputSeq = 0;
+            int64_t idxInBamRead = seqStartPos;
+            while (idxInBamRead < seqEndPos) {
+                seq[idxInOutputSeq] = seq_nt16_str[bam_seqi(seqBits, idxInBamRead)];
+                idxInBamRead++;
+                idxInOutputSeq++;
+            }
+            seq[seqLen] = '\0';
+
+            // get sequence qualities (if exists)
+            uint8_t *qual = NULL;
+            if (qualBits[0] != 0xff) { //inital score of 255 means qual scores are unavailable
+                idxInOutputSeq = 0;
+                idxInBamRead = seqStartPos;
+                qual = st_calloc(seqLen, sizeof(uint8_t));
+                while (idxInBamRead < seqEndPos) {
+                    qual[idxInOutputSeq] = qualBits[idxInBamRead];
+                    idxInBamRead++;
+                    idxInOutputSeq++;
+                }
+                assert(idxInOutputSeq == strlen(seq));
+            }
+
+            // save it
+            bamChunkReadVcfEntrySubstrings_saveSubstring(bcrves, seq, qual, currVcfEntry);
+            stList_append(noLongerCurrentVcfEntries, currVcfEntry);
+        }
+    }
+    // remove any vcf entries we're finished with
+    for (int64_t r = 0; r < stList_length(noLongerCurrentVcfEntries); r++) {
+        stHash_remove(currentVcfEntries, stList_get(noLongerCurrentVcfEntries, r));
+    }
+    stList_destruct(noLongerCurrentVcfEntries);
+}
+
+
+
+uint32_t extractReadSubstringsAtVariantPositions(BamChunk *bamChunk, stList *vcfEntries, stList *reads,
+        stList *filteredReads, PolishParams *polishParams) {
+
+    // sanity check
+    assert(stList_length(reads) == 0);
+
+    // prep
+    int64_t chunkOverlapStart = bamChunk->chunkOverlapStart;
+    int64_t chunkOverlapEnd = bamChunk->chunkOverlapEnd;
+    char *bamFile = bamChunk->parent->bamFile;
+    char *contig = bamChunk->refSeqName;
+    uint32_t savedAlignments = 0;
+    double randomDiscardChance = 1.0;
+    if (bamChunk->estimatedDepth > polishParams->excessiveDepthThreshold) {
+        char *logIdentifier = getLogIdentifier();
+        randomDiscardChance = 1.0 * polishParams->excessiveDepthThreshold / bamChunk->estimatedDepth;
+        st_logInfo(" %s Randomly removing reads from excessively deep (%"PRId64"/%"PRId64") chunk with chance %f\n",
+                   logIdentifier, bamChunk->estimatedDepth, polishParams->excessiveDepthThreshold, 1.0 - randomDiscardChance);
+    }
+
+    // prep for index (not entirely sure what all this does.  see samtools/sam_view.c
+    int filter_state = ALL, filter_op = 0;
+    int result;
+    samview_settings_t settings = {.bed = NULL};
+    char *region[1] = {};
+    region[0] = stString_print("%s:%d-%d", bamChunk->refSeqName, bamChunk->chunkOverlapStart,
+                               bamChunk->chunkOverlapEnd);
+    settings.bed = bed_hash_regions(settings.bed, region, 0, 1,
+                                    &filter_op); //insert(1) or filter out(0) the regions from the command line in the same hash table as the bed file
+    if (!filter_op) filter_state = FILTERED;
+    int regcount = 0;
+    hts_reglist_t *reglist = bed_reglist(settings.bed, filter_state, &regcount);
+    if (!reglist) {
+        st_errAbort("ERROR: Could not create list of regions for read conversion");
+    }
+
+    // file initialization
+    samFile *in = NULL;
+    hts_idx_t *idx = NULL;
+    hts_itr_multi_t *iter = NULL;
+    // bam file
+    if ((in = hts_open(bamFile, "r")) == 0) {
+        st_errAbort("ERROR: Cannot open bam file %s\n", bamFile);
+    }
+    // bam index
+    if ((idx = sam_index_load(in, bamFile)) == 0) {
+        st_errAbort("ERROR: Cannot open index for bam file %s\n", bamFile);
+    }
+    // header  //todo samFile *in = hts_open(bamFile, "r");
+    bam_hdr_t *bamHdr = sam_hdr_read(in);
+    // read object
+    bam1_t *aln = bam_init1();
+    // iterator for region
+    if ((iter = sam_itr_regions(idx, bamHdr, reglist, regcount)) == 0) {
+        st_errAbort("ERROR: Cannot open iterator for region %s for bam file %s\n", region[0], bamFile);
+    }
+
+    // fetch alignments //todo while(sam_read1(in,bamHdr,aln) > 0) {
+    while ((result = sam_itr_multi_next(in, iter, aln)) >= 0) {
+        bool filtered = FALSE;
+        // basic filtering (no read length, no cigar)
+        if (aln->core.l_qseq <= 0) continue;
+        if (aln->core.n_cigar == 0) continue;
+        if ((aln->core.flag & (uint16_t) 0x4) != 0)
+            continue; //unaligned
+        if (!polishParams->includeSecondaryAlignments && (aln->core.flag & (uint16_t) 0x100) != 0)
+            continue; //secondary
+        if (!polishParams->includeSupplementaryAlignments && (aln->core.flag & (uint16_t) 0x800) != 0)
+            continue; //supplementary
+        if (st_random() > randomDiscardChance)
+            continue; // chunk is too deep
+        if (aln->core.qual < polishParams->filterAlignmentsWithMapQBelowThisThreshold) { //low mapping quality
+            if (filteredReads == NULL) continue;
+            filtered = TRUE;
+        }
+
+        // data
+        char *chr = bamHdr->target_name[aln->core.tid];
+        int64_t start_softclip = 0;
+        int64_t end_softclip = 0;
+        int64_t alnReadLength = getAlignedReadLength3(aln, &start_softclip, &end_softclip, FALSE);
+        if (alnReadLength <= 0) continue;
+        int64_t alnStartPos = aln->core.pos;
+        int64_t alnEndPos = alnStartPos + alnReadLength;
+
+        // does this belong in our chunk?
+        assert(stString_eq(contig, chr));
+        // excludes reads starting before nominal chunk start, and after chunk end
+        if (alnStartPos >= bamChunk->chunkEnd) continue;
+        if (alnEndPos <= bamChunk->chunkStart) continue;
+
+        // get read data
+        uint8_t *seqBits = bam_get_seq(aln);
+        char *readName = bam_get_qname(aln);
+        uint8_t *qualBits = bam_get_qual(aln);
+        bool forwardStrand = !bam_is_rev(aln);
+
+        // for vcf tracking at local level
+        int64_t nextVcfEntriesIndex = binarySearchVcfListForFirstIndexAfterRefPos(vcfEntries, alnStartPos);
+        if (nextVcfEntriesIndex == -1) continue; // all vcf entries are before this read's start
+        stHash *currentVcfEntries = stHash_construct(); // current vcf entries to read start pos
+        // for vcf tracking at read level
+        stList *readSubstrings = stList_construct3(0, free);
+        stList *substringsToVcf = stList_construct();
+        // the bcrves we will be populating with vcf substrings
+        BamChunkReadVcfEntrySubstrings *bcrves = bamChunkReadVcfEntrySubstrings_construct(readName, forwardStrand, alnReadLength);
+
+        // get cigar and rep
+        uint32_t *cigar = bam_get_cigar(aln);
+        stList *cigRepr = stList_construct3(0, (void (*)(void *)) stIntTuple_destruct);
+
+        // Variables to keep track of position in sequence / cigar operations
+        int64_t cig_idx = 0;
+        int64_t currPosInOp = 0;
+        int64_t cigarOp = -1;
+        int64_t cigarNum = -1;
+        int64_t cigarIdxInSeq = 0;
+        int64_t cigarIdxInRef = alnStartPos;
+
+        // positional modifications
+        int64_t refCigarModification = -1 * chunkOverlapStart;
+
+        // we need to calculate:
+        //  a. where in the (potentially softclipped read) to start storing characters
+        //  b. what the alignments are wrt those characters
+        // so we track the first aligned character in the read (for a.) and what alignment modification to make (for b.)
+        int64_t firstNonSoftclipAlignedReadIdxInChunk;
+
+        // the handling changes based on softclip inclusion and where the chunk boundaries are
+        if (alnStartPos < chunkOverlapStart) {
+            // alignment spans chunkStart
+            firstNonSoftclipAlignedReadIdxInChunk = -1;
+        } else {
+            // alignment starts after chunkStart
+            firstNonSoftclipAlignedReadIdxInChunk = 0;
+        }
+
+        // start with any vcf entries that may coincide with the beginning of the read
+        if (start_softclip == 0) {
+            saveStartingVcfEntries(vcfEntries, currentVcfEntries, &nextVcfEntriesIndex, cigarIdxInRef,
+                                   refCigarModification, firstNonSoftclipAlignedReadIdxInChunk,
+                                   cigarIdxInSeq, start_softclip);
+        }
+
+        // track number of characters in aligned portion (will inform softclipping at end of read)
+        int64_t alignedReadLength = 0;
+
+        // iterate over cigar operations
+        for (uint32_t i = 0; i <= alnReadLength; i++) {
+            // handles cases where last alignment is an insert or last is match
+            if (cig_idx == aln->core.n_cigar) break;
+
+            // do we need the next cigar operation?
+            if (currPosInOp == 0) {
+                cigarOp = cigar[cig_idx] & BAM_CIGAR_MASK;
+                cigarNum = cigar[cig_idx] >> BAM_CIGAR_SHIFT;
+            }
+
+            // handle current character
+            if (cigarOp == BAM_CMATCH || cigarOp == BAM_CEQUAL || cigarOp == BAM_CDIFF) {
+                if (cigarIdxInRef >= chunkOverlapStart && cigarIdxInRef < chunkOverlapEnd) {
+                    stList_append(cigRepr, stIntTuple_construct3(cigarIdxInRef + refCigarModification,
+                                                                 cigarIdxInSeq, polishParams->p->diagonalExpansion));
+                    alignedReadLength++;
+                }
+                cigarIdxInSeq++;
+                cigarIdxInRef++;
+            } else if (cigarOp == BAM_CDEL || cigarOp == BAM_CREF_SKIP) {
+                //delete
+                cigarIdxInRef++;
+            } else if (cigarOp == BAM_CINS) {
+                //insert
+                cigarIdxInSeq++;
+                if (cigarIdxInRef >= chunkOverlapStart && cigarIdxInRef < chunkOverlapEnd) {
+                    alignedReadLength++;
+                }
+                i--;
+            } else if (cigarOp == BAM_CSOFT_CLIP) {
+                // nothing to do here. skip to next cigar operation
+                currPosInOp = cigarNum - 1;
+                i--;
+            } else if (cigarOp == BAM_CHARD_CLIP || cigarOp == BAM_CPAD) {
+                // nothing to do here. skip to next cigar operation
+                currPosInOp = cigarNum - 1;
+                i--;
+            } else {
+                st_logCritical("Unidentifiable cigar operation!\n");
+            }
+
+            // document read index in the chunk (for reads that span chunk boundary, used in read construction)
+            if (firstNonSoftclipAlignedReadIdxInChunk < 0 && cigarIdxInRef >= chunkOverlapStart) {
+                firstNonSoftclipAlignedReadIdxInChunk = cigarIdxInSeq;
+            }
+
+            //  add new vcf entries
+            saveStartingVcfEntries(vcfEntries, currentVcfEntries, &nextVcfEntriesIndex, cigarIdxInRef,
+                    refCigarModification, firstNonSoftclipAlignedReadIdxInChunk, cigarIdxInSeq, start_softclip);
+            // remove old vcf entries
+            saveFinishedVcfEntries(currentVcfEntries, cigarIdxInRef + refCigarModification,
+                    cigarIdxInSeq, start_softclip, seqBits, qualBits, bcrves, FALSE);
+
+            // have we finished this last cigar
+            currPosInOp++;
+            if (currPosInOp == cigarNum) {
+                cig_idx++;
+                currPosInOp = 0;
+            }
+        }
+
+        // finish final vcf stuff
+        saveFinishedVcfEntries(currentVcfEntries, cigarIdxInRef + refCigarModification, cigarIdxInSeq, start_softclip,
+                seqBits, qualBits, bcrves, TRUE);
+        assert(stHash_size(currentVcfEntries) == 0);
+
+        // save
+        stList_append(filtered ? filteredReads: reads, bcrves);
+
+        savedAlignments++;
+
+        // cleanup
+        stHash_destruct(currentVcfEntries);
+    }
+    // the status from "get reads from iterator"
+    if (result < -1) {
+        st_errAbort("ERROR: Retrieval of region %d failed due to truncated file or corrupt BAM index file\n",
+                    iter->curr_tid);
+    }
+
+    // close it all down
+    hts_itr_multi_destroy(iter);
+    hts_idx_destroy(idx);
+    free(region[0]);
+    bed_destroy(settings.bed);
+    bam_hdr_destroy(bamHdr);
+    bam_destroy1(aln);
+    sam_close(in);
+
+    return savedAlignments;
+}

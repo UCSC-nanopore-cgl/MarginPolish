@@ -1,0 +1,20 @@
+@HD	VN:1.4	GO:none	SO:coordinate
+@SQ	SN:contig_1	LN:10000000
+@SQ	SN:contig_2	LN:10000000
+read_0	0	contig_1	1	50	1M	*	0	0	A	*
+read_1_extendsPastVariantBoundaries	0	contig_1	12	50	26M	*	0	0	TAAACCCGGGTTTAAAACCCCGGGGT	*
+read_1_extendsPastVariantBoundariesSC	0	contig_1	12	50	4S26M4S	*	0	0	GGGGTAAACCCGGGTTTAAAACCCCGGGGTGGGG	*
+read_1_extendsToVariantBoundaries	0	contig_1	13	50	24M	*	0	0	AAACCCGGGTTTAAAACCCCGGGG	*
+read_1_extendsToVariantBoundariesSC	0	contig_1	13	50	4S24M4S	*	0	0	GGGGAAACCCGGGTTTAAAACCCCGGGGAAAA	*
+read_1_extendsIntoVariantBoundaries	0	contig_1	16	50	18M	*	0	0	CCCGGGTTTAAAACCCCG	*
+read_1_extendsIntoVariantBoundariesSC	0	contig_1	16	50	4S18M4S	*	0	0	GGGGCCCGGGTTTAAAACCCCGAAAA	*
+read_1_alignsToVariantPos	0	contig_1	17	50	16M	*	0	0	CCGGGTTTAAAACCCC	*
+read_1_alignsToVariantPosSC	0	contig_1	17	50	4S16M4S	*	0	0	GGGGCCGGGTTTAAAACCCCAAAA	*
+read_1_onlySpanVariantBoundaries	0	contig_1	18	50	13M	*	0	0	CGGGTTTAAAACC	*
+read_1_onlySpanVariantBoundariesSC	0	contig_1	18	50	4S13M4S	*	0	0	GGGGCGGGTTTAAAACCAAAA	*
+read_2_extendsPastVariantBoundaries	0	contig_1	44	50	13M	*	0	0	AACCCCCGGGGGT	*
+read_2_extendsToVariantBoundaries	0	contig_1	45	50	11M	*	0	0	ACCCCCGGGGG	*
+read_2_extendsIntoVariantBoundaries	0	contig_1	46	50	9M	*	0	0	CCCCCGGGG	*
+read_2_alignsToVariantPos	0	contig_1	49	50	3M	*	0	0	CCG	*
+read_2_onlySpanVariantBoundaries	0	contig_1	50	50	1M	*	0	0	C	*
+read_n	0	contig_1	128	50	1M	*	0	0	T	*
