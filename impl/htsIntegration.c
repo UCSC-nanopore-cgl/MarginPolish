@@ -437,6 +437,8 @@ BamChunker *bamChunker_constructFromFasta(char *fastaFile, char *bamFile, char *
     }
     assert(chunker->chunkCount == stList_length(chunker->chunks));
 
+    // cleanup and close
+    fai_destroy(fai);
     return chunker;
 }
 

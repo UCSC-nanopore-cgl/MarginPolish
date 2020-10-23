@@ -777,6 +777,40 @@ int main(int argc, char *argv[]) {
                 st_logInfo(" %s Assigning %"PRId64" filtered reads to haplotypes\n", logIdentifier, stList_length(filteredReads));
                 removeReadsOnlyInChunkBoundary(bamChunk, filteredReads, filteredAlignments, logIdentifier);
 
+                // we want to only keep up to excessiveDepthThreshold filtered reads
+                // get downsampling structures
+                stList *filteredMaintainedReads = stList_construct3(0, (void (*)(void *)) bamChunkRead_destruct);
+                stList *filteredMaintainedAlignments = stList_construct3(0, (void (*)(void *)) stList_destruct);
+                stList *filteredFilteredReads = stList_construct3(0, (void (*)(void *)) bamChunkRead_destruct);
+                stList *filteredFilteredAlignments = stList_construct3(0, (void (*)(void *)) stList_destruct);
+                bool didDownsample = downsampleViaFullReadLengthLikelihood(params->polishParams->excessiveDepthThreshold,
+                        bamChunk,  filteredReads, filteredAlignments, filteredMaintainedReads,
+                        filteredMaintainedAlignments, filteredFilteredReads,  filteredFilteredAlignments);
+
+                // we need to destroy data structures
+                if (didDownsample) {
+                    st_logInfo(" %s Downsampled filtered reads from %"PRId64" to %"PRId64" reads\n", logIdentifier,
+                               stList_length(filteredReads), stList_length(filteredMaintainedReads));
+                    // still has all the old reads, need to not free these
+                    stList_setDestructor(filteredReads, NULL);
+                    stList_setDestructor(filteredAlignments, NULL);
+                    stList_destruct(filteredReads);
+                    stList_destruct(filteredAlignments);
+                    // and keep the filtered reads
+                    filteredReads = filteredMaintainedReads;
+                    filteredAlignments = filteredMaintainedAlignments;
+                }
+                // no downsampling, we just need to free the (empty) maintained read objects
+                else {
+                    assert(stList_length(filteredMaintainedReads) == 0);
+                    assert(stList_length(filteredMaintainedAlignments) == 0);
+                    stList_destruct(filteredMaintainedReads);
+                    stList_destruct(filteredMaintainedAlignments);
+                }
+                // always destroy these (they're either empty or we don't need the reads anymore)
+                stList_destruct(filteredFilteredReads);
+                stList_destruct(filteredFilteredAlignments);
+
                 time_t filteredPhasingStart = time(NULL);
                 Poa *filteredPoa = NULL;
                 if (skipRealignment) {

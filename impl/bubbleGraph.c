@@ -985,7 +985,7 @@ BubbleGraph *bubbleGraph_constructFromPoaAndVCF(Poa *poa, stList *bamChunkReads,
                         stList_append(bubbles, b);
 
                         // Set the coordinates
-                        b->refStart = pAnchor;
+                        b->refStart = pAnchor + 1;
                         b->bubbleLength = i - 1 - pAnchor;
 
                         // get variant positions
