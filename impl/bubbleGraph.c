@@ -1154,7 +1154,7 @@ BubbleGraph *bubbleGraph_constructFromPoaAndVCFOnlyVCFAllele(Poa *poa, stList *b
         stList_append(bubbles, b);
 
         b->refStart = (uint64_t) refStartPos;
-        b->bubbleLength = (uint64_t) refEndPosIncl - refStartPos + 1;
+        b->bubbleLength = (uint64_t) refEndPosIncl - refStartPos;
 
         // get variant positions
         b->variantPositionOffsets = stList_construct();
@@ -1304,11 +1304,12 @@ BubbleGraph *bubbleGraph_partitionFilteredReads(Poa *poa, stList *bamChunkReads,
         stList_append(alleles, rleString_expand(hap2));
 
         // get read substrings
-        stList *readSubstrings = getReadSubstrings2(bamChunkReads, poa, refStart, refStart+primaryBubble->bubbleLength,
+        stList *readSubstrings = getReadSubstrings2(bamChunkReads, poa, refStart, refStart+primaryBubble->bubbleLength+1,
                 params, FALSE);
 
         // Get existing reference string
-        RleString *existingRefSubstring = rleString_copySubstring(poa->refString, refStart, primaryBubble->bubbleLength);
+        // ref string is 0-based, non-N poa nodes are 1-based
+        RleString *existingRefSubstring = rleString_copySubstring(poa->refString, refStart-1, primaryBubble->bubbleLength);
         assert(existingRefSubstring->length == primaryBubble->bubbleLength);
         char *expandedExistingRefSubstring = rleString_expand(existingRefSubstring);
 
@@ -1321,6 +1322,11 @@ BubbleGraph *bubbleGraph_partitionFilteredReads(Poa *poa, stList *bamChunkReads,
             }
         }
         if (!seenRefAllele) {
+            char *allRefSubstrings = stString_join2(", ", alleles);
+            st_logInfo(" %s While partitioning filtered reads at %"PRId64"(+%"PRId64"), did not see ref allele '%s': %s\n",
+                    logIdentifier, primaryBubble->refStart, primaryBubble->bubbleLength, expandedExistingRefSubstring,
+                    allRefSubstrings);
+            free(allRefSubstrings);
             stList_append(alleles, stString_copy(expandedExistingRefSubstring));
         }
 

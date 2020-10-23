@@ -1335,8 +1335,13 @@ char *getSequenceFromReference(char *fastaFile, char *contig, int64_t startPos, 
     char *regionStr = stString_print("%s:%"PRId64"-%"PRId64, contig, startPos, endPosExcl);
     int seqLen;
     char *seq = fai_fetch(fai, regionStr, &seqLen);
+
+    // sanity check
     assert(seqLen == endPosExcl - startPos + 1); // this sequence is 1-based (but tolerates idx 0)
     assert(seqLen == strlen(seq)); // seq len returns size of seq w/ \0-termination
+
+    // close and return
     free(regionStr);
+    fai_destroy(fai);
     return seq;
 }
