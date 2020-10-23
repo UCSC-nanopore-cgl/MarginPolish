@@ -394,9 +394,6 @@ int main(int argc, char *argv[]) {
         params_printParameters(params, stderr);
     }
 
-    // get reference sequences (and remove cruft after refName)
-    stHash *referenceSequences = parseReferenceSequences(referenceFastaFile);
-
     // get vcf entries (if set)
     stHash *vcfEntries = NULL;
     if (vcfFile != NULL) {
@@ -404,14 +401,13 @@ int main(int argc, char *argv[]) {
     }
 
     // get chunker for bam.  if regionStr is NULL, it will be ignored
-    time_t chunkingStart = time(NULL);
-    BamChunker *bamChunker = bamChunker_construct2(bamInFile, regionStr, params->polishParams, partitionFilteredReads);
+    BamChunker *bamChunker = bamChunker_constructFromFasta(referenceFastaFile, bamInFile, regionStr, params->polishParams);
     st_logCritical(
-            "> Set up bam chunker in %"PRId64"s with chunk size %i and overlap %i (for region=%s), resulting in %i total chunks\n",
-            time(NULL) - chunkingStart, (int) bamChunker->chunkSize, (int) bamChunker->chunkBoundary,
+            "> Set up bam chunker with chunk size %i and overlap %i (for region=%s), resulting in %i total chunks\n",
+            (int) bamChunker->chunkSize, (int) bamChunker->chunkBoundary,
             regionStr == NULL ? "all" : regionStr, bamChunker->chunkCount);
     if (bamChunker->chunkCount == 0) {
-        st_errAbort("> Found no valid reads!\n");
+        st_errAbort("> Found no valid reference sequences!\n");
     }
 
     // print chunk info
@@ -525,23 +521,9 @@ int main(int argc, char *argv[]) {
             free(timeDescriptor);
         }
 
-        // Get reference string for chunk of alignment
-        char *fullReferenceString = stHash_search(referenceSequences, bamChunk->refSeqName);
-        if (fullReferenceString == NULL) {
-            st_errAbort(
-                    "ERROR: Reference sequence missing from reference map: %s. Perhaps the BAM and REF are mismatched?",
-                    bamChunk->refSeqName);
-        }
-        int64_t fullRefLen = strlen(fullReferenceString);
-        if (bamChunk->chunkOverlapStart > fullRefLen) {
-            st_errAbort("ERROR: Reference sequence %s has length %"PRId64", chunk %"PRId64" has start position %"
-                        PRId64". Perhaps the BAM and REF are mismatched?",
-                        bamChunk->refSeqName, fullRefLen, chunkIdx, bamChunk->chunkOverlapStart);
-        }
-        RleString *rleReference = bamChunk_getReferenceSubstring(bamChunk, referenceSequences, params);
-        st_logInfo(">%s Going to process a chunk (~%"PRId64"x) for reference sequence: %s, starting at: %i and ending at: %i\n",
-                   logIdentifier, bamChunk->estimatedDepth, bamChunk->refSeqName, (int) bamChunk->chunkOverlapStart,
-                   (int) (fullRefLen < bamChunk->chunkOverlapEnd ? fullRefLen : bamChunk->chunkOverlapEnd));
+        RleString *rleReference = bamChunk_getReferenceSubstring(bamChunk, referenceFastaFile, params);
+        st_logInfo(">%s Going to process a chunk for reference sequence: %s, starting at: %i and ending at: %i\n",
+                   logIdentifier, bamChunk->refSeqName, (int) bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd);
 
         // Convert bam lines into corresponding reads and alignments
         st_logInfo(" %s Parsing input reads from file: %s\n", logIdentifier, bamInFile);
@@ -943,7 +925,7 @@ int main(int argc, char *argv[]) {
             int regionEnd = 0;
             int scanRet = sscanf(regionStr, "%[^:]:%d-%d", regionContig, &regionStart, &regionEnd);
             if (scanRet != 3) {
-                regionEnd = (int) strlen(stHash_search(referenceSequences, regionContig));
+                regionEnd = (int)((BamChunk*)stList_get(bamChunker->chunks, bamChunker->chunkCount -1))->chunkOverlapEnd;
             }
             whbBamChunk = bamChunk_construct2(regionContig, -1, regionStart, regionStart, regionEnd,
                     regionEnd, 0, bamChunker);
@@ -977,7 +959,6 @@ int main(int argc, char *argv[]) {
         bamChunker_destruct(truthHaplotypesBamChunker);
     }
     bamChunker_destruct(bamChunker);
-    stHash_destruct(referenceSequences);
     params_destruct(params);
     if (trueReferenceBam != NULL) free(trueReferenceBam);
     if (regionStr != NULL) free(regionStr);

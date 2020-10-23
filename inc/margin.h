@@ -1377,7 +1377,7 @@ struct _vcfEntry {
     int64_t gt2;
     stList *alleleSubstrings;
     int64_t refAlnStart;
-    int64_t refAlnStopExcl;
+    int64_t refAlnStopIncl;
 };
 
 VcfEntry *vcfEntry_construct(char *refSeqName, int64_t refPos, int64_t rawRefPos, double phredQuality,
@@ -1391,10 +1391,11 @@ int64_t binarySearchVcfListForFirstIndexAfterRefPos(stList *vcfEntries, int64_t 
 stList *getVcfEntriesForRegion(stHash *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos);
 stList *getVcfEntriesForRegion2(stHash *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos, double minQual);
 stList *getAlleleSubstrings2(VcfEntry *entry, char *referenceSeq, int64_t refSeqLen, int64_t *refStartPos,
-        int64_t *refEndPosExcl, int64_t expansion, bool useRunLengthEncoding);
+        int64_t *refEndPosIncl, bool refPosInPOASpace, int64_t expansion, bool useRunLengthEncoding);
 stList *getAlleleSubstrings(VcfEntry *entry, RleString *referenceSeq, Params *params,
-                            int64_t *refStartPos, int64_t *refEndPosExcl);
-void updateVcfEntriesWithSubstringsAndPositions(stList *vcfEntries, char *referenceSeq, int64_t refSeqLen, Params *params);
+                            int64_t *refStartPos, int64_t *refEndPosIncl, bool refPosInPOASpace);
+void updateVcfEntriesWithSubstringsAndPositions(stList *vcfEntries, char *referenceSeq, int64_t refSeqLen,
+        bool refPosInPOASpace, Params *params);
 BubbleGraph *bubbleGraph_constructFromPoaAndVCF(Poa *poa, stList *bamChunkReads, stList *vcfEntries,
                                                 PolishParams *params, bool phasing);
 BubbleGraph *bubbleGraph_constructFromPoaAndVCFOnlyVCFAllele(Poa *poa, stList *bamChunkReads,
@@ -1411,7 +1412,7 @@ char *getFileBase(char *base, char *defawlt);
 
 FILE *safe_fopen(char *file, char *openStr);
 
-RleString *bamChunk_getReferenceSubstring(BamChunk *bamChunk, stHash *referenceSequences, Params *params);
+RleString *bamChunk_getReferenceSubstring(BamChunk *bamChunk, char *referenceFile, Params *params);
 uint64_t *getPaddedHaplotypeString(uint64_t *hap, stGenomeFragment *gf, BubbleGraph *bg, Params *params);
 stSet *bamChunkRead_to_readName(stSet *bamChunkReads);
 stList *copyListOfIntTuples(stList *toCopy);
@@ -1467,6 +1468,8 @@ BamChunker *bamChunker_construct(char *bamFile, PolishParams *params);
 
 BamChunker *bamChunker_construct2(char *bamFile, char *region, PolishParams *params, bool recordFilteredReads);
 
+BamChunker *bamChunker_constructFromFasta(char *fastaFile, char *bamFile, char *regionStr, PolishParams *params);
+
 BamChunker *bamChunker_copyConstruct(BamChunker *toCopy);
 
 void bamChunker_destruct(BamChunker *bamChunker);
@@ -1505,6 +1508,8 @@ bool downsampleViaFullReadLengthLikelihood(int64_t intendedDepth, BamChunk *bamC
 
 void writeHaplotaggedBam(BamChunk *bamChunk, char *inputBamLocation, char *outputBamFileBase,
                          stSet *readsInH1, stSet *readsInH2, Params *params, char *logIdentifier);
+
+char *getSequenceFromReference(char *fastaFile, char *contig, int64_t startPos, int64_t endPosExcl);
 
 int64_t getAlignedReadLength(bam1_t *aln);
 
