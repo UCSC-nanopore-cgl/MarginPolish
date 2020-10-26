@@ -27,7 +27,7 @@
           "maxDepth": 64,
           "excessiveDepthThreshold": 256,
           "shuffleChunks": true,
-          "shuffleChunksMethod": "random",
+          "shuffleChunksMethod": "size_desc",
           "referenceBasePenalty": 0.5,
           "poaConstructCompareRepeatCounts": true,
           "minPosteriorProbForAlignmentAnchors": [

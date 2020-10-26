@@ -203,7 +203,7 @@ PolishParams  *polishParams_constructEmpty() {
     params->minPosteriorProbForAlignmentAnchorsLength = 2;
     params->includeSoftClipping = FALSE;
     params->shuffleChunks = TRUE;
-    params->shuffleChunksMethod = SCM_RANDOM;
+    params->shuffleChunksMethod = SCM_SIZE_DESC;
     params->useRepeatCountsInAlignment = FALSE;
     params->chunkSize = 10000;
     params->chunkBoundary = 1000;
