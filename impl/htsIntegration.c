@@ -532,12 +532,14 @@ uint32_t convertToReadsAndAlignmentsWithFiltered(BamChunk *bamChunk, RleString *
     char *contig = bamChunk->refSeqName;
     uint32_t savedAlignments = 0;
     double randomDiscardChance = 1.0;
-    if (bamChunk->estimatedDepth > polishParams->excessiveDepthThreshold) {
+    //removing reads in filtering step is working, so taking this out for now
+    //  (also removing the check in the loop below)
+    /*if (bamChunk->estimatedDepth > polishParams->excessiveDepthThreshold) {
         char *logIdentifier = getLogIdentifier();
         randomDiscardChance = 1.0 * polishParams->excessiveDepthThreshold / bamChunk->estimatedDepth;
         st_logInfo(" %s Randomly removing reads from excessively deep (%"PRId64"/%"PRId64") chunk with chance %f\n",
                 logIdentifier, bamChunk->estimatedDepth, polishParams->excessiveDepthThreshold, 1.0 - randomDiscardChance);
-    }
+    }*/
 
     // prep for index (not entirely sure what all this does.  see samtools/sam_view.c
     int filter_state = ALL, filter_op = 0;
@@ -588,8 +590,9 @@ uint32_t convertToReadsAndAlignmentsWithFiltered(BamChunk *bamChunk, RleString *
             continue; //secondary
         if (!polishParams->includeSupplementaryAlignments && (aln->core.flag & (uint16_t) 0x800) != 0)
             continue; //supplementary
-        if (st_random() > randomDiscardChance)
-            continue; // chunk is too deep
+        // see above, taking this out as removal in filtering step is working
+        /*if (st_random() > randomDiscardChance)
+            continue; // chunk is too deep*/
         if (aln->core.qual < polishParams->filterAlignmentsWithMapQBelowThisThreshold) { //low mapping quality
             if (filteredReads == NULL) continue;
             filtered = TRUE;
