@@ -208,53 +208,55 @@ void test_vcfAlleleSubstrings(CuTest *testCase) {
     assertVcfEntryCorrect(testCase, stList_get(vcfEntries, 10), "vcfTest2", 127, "C", "A", RLE);
 
     // get substrings
-    stHash *referenceSequences = parseReferenceSequences(VCF2_REF);
-    char *refSeq = stHash_search(referenceSequences, "vcfTest2");
+    // this conversion is to put things in poa-space, which should be countered by allele substrings
+    vcfEntries = getVcfEntriesForRegion(vcfEntryMap, NULL, "vcfTest2", 0, 128);
+    char *refSeq = getSequenceFromReference(VCF2_REF,"vcfTest2", 0, 128);
     RleString *refRleString = RLE ? rleString_construct(refSeq) : rleString_construct_no_rle(refSeq);
-    stList *allAlleleSubstrings = stList_construct3(0, (void (*)(void*)) stList_destruct);
-    stList *allRefPositions = stList_construct3(0, (void (*)(void*)) stIntTuple_destruct);
+    stList *allAlleleSubstringsPoaSpace = stList_construct3(0, (void (*)(void*)) stList_destruct);
+    stList *allRefPositionsPoaSpace = stList_construct3(0, (void (*)(void*)) stIntTuple_destruct);
     for (int64_t i = 0; i < stList_length(vcfEntries); i++) {
         int64_t start, end;
-        stList_append(allAlleleSubstrings, getAlleleSubstrings(stList_get(vcfEntries, i), refRleString,
-                                                               params, &start, &end));
-        stList_append(allRefPositions, stIntTuple_construct2(start, end));
+        stList_append(allAlleleSubstringsPoaSpace, getAlleleSubstrings(stList_get(vcfEntries, i), refRleString,
+                                                               params, &start, &end, TRUE));
+        stList_append(allRefPositionsPoaSpace, stIntTuple_construct2(start, end));
     }
 
     // assert correctness of strings
     char *alleles0[] = {"AAA", "GAA"};
-    assertAlleleSubstringsCorrect2(testCase, stList_get(allAlleleSubstrings, 0), alleles0, 2,
-            stList_get(allRefPositions, 0), 0, 3);
+    assertAlleleSubstringsCorrect2(testCase, stList_get(allAlleleSubstringsPoaSpace, 0), alleles0, 2,
+            stList_get(allRefPositionsPoaSpace, 0), 1, 4);
     char *alleles1[] = {"AAAA", "AGAA"};
-    assertAlleleSubstringsCorrect2(testCase, stList_get(allAlleleSubstrings, 1), alleles1, 2,
-                                  stList_get(allRefPositions, 1), 0, 4);
+    assertAlleleSubstringsCorrect2(testCase, stList_get(allAlleleSubstringsPoaSpace, 1), alleles1, 2,
+                                  stList_get(allRefPositionsPoaSpace, 1), 1, 5);
     char *alleles2[] = {"TTAGA", "TTGGA"};
-    assertAlleleSubstringsCorrect2(testCase, stList_get(allAlleleSubstrings, 2), alleles2, 2,
-                                   stList_get(allRefPositions, 2), 30, 35);
+    assertAlleleSubstringsCorrect2(testCase, stList_get(allAlleleSubstringsPoaSpace, 2), alleles2, 2,
+                                   stList_get(allRefPositionsPoaSpace, 2), 31, 36);
     char *alleles3[] = {"CGAAC", "CGCAC", "CGGAC", "CGTAC"};
-    assertAlleleSubstringsCorrect2(testCase, stList_get(allAlleleSubstrings, 3), alleles3, 4,
-                                   stList_get(allRefPositions, 3), 46, 51);
+    assertAlleleSubstringsCorrect2(testCase, stList_get(allAlleleSubstringsPoaSpace, 3), alleles3, 4,
+                                   stList_get(allRefPositionsPoaSpace, 3), 47, 52);
     char *alleles4[] = {"ATGAC", "ATGCCAC"};
-    assertAlleleSubstringsCorrect2(testCase, stList_get(allAlleleSubstrings, 4), alleles4, 2,
-                                   stList_get(allRefPositions, 4), 62, 67);
+    assertAlleleSubstringsCorrect2(testCase, stList_get(allAlleleSubstringsPoaSpace, 4), alleles4, 2,
+                                   stList_get(allRefPositionsPoaSpace, 4), 63, 68);
     char *alleles5[] = {"CCAGA", "CCACTGGA", "CCCCCGA"};
-    assertAlleleSubstringsCorrect2(testCase, stList_get(allAlleleSubstrings, 5), alleles5, 3,
-                                   stList_get(allRefPositions, 5), 70, 75);
+    assertAlleleSubstringsCorrect2(testCase, stList_get(allAlleleSubstringsPoaSpace, 5), alleles5, 3,
+                                   stList_get(allRefPositionsPoaSpace, 5), 71, 76);
     char *alleles6[] = {"ACGGGAG", "ACGAG"};
-    assertAlleleSubstringsCorrect2(testCase, stList_get(allAlleleSubstrings, 6), alleles6, 2,
-                                  stList_get(allRefPositions, 6), 78, 85);
+    assertAlleleSubstringsCorrect2(testCase, stList_get(allAlleleSubstringsPoaSpace, 6), alleles6, 2,
+                                  stList_get(allRefPositionsPoaSpace, 6), 79, 86);
     char *alleles7[] = {"CCAGGGGA", "CCAGA", "CCAGGA"};
-    assertAlleleSubstringsCorrect2(testCase, stList_get(allAlleleSubstrings, 7), alleles7, 3,
-                                   stList_get(allRefPositions, 7), 86, 94);
+    assertAlleleSubstringsCorrect2(testCase, stList_get(allAlleleSubstringsPoaSpace, 7), alleles7, 3,
+                                   stList_get(allRefPositionsPoaSpace, 7), 87, 95);
     char *alleles8[] = {"CACCCAA", "CAAAA", "CAGGAAA", "CACAGAGAGAAA"};
-    assertAlleleSubstringsCorrect2(testCase, stList_get(allAlleleSubstrings, 8), alleles8, 4,
-                                   stList_get(allRefPositions, 8), 94, 101);
+    assertAlleleSubstringsCorrect2(testCase, stList_get(allAlleleSubstringsPoaSpace, 8), alleles8, 4,
+                                   stList_get(allRefPositionsPoaSpace, 8), 95, 102);
     char *alleles9[] = {"ATAC", "ATGC"};
-    assertAlleleSubstringsCorrect2(testCase, stList_get(allAlleleSubstrings, 9), alleles9, 2,
-                                   stList_get(allRefPositions, 9), 124, 128);
+    assertAlleleSubstringsCorrect2(testCase, stList_get(allAlleleSubstringsPoaSpace, 9), alleles9, 2,
+                                   stList_get(allRefPositionsPoaSpace, 9), 125, 128);
     char *alleles10[] = {"TAC", "TAA"};
-    assertAlleleSubstringsCorrect2(testCase, stList_get(allAlleleSubstrings, 10), alleles10, 2,
-                                   stList_get(allRefPositions, 10), 125, 128);
+    assertAlleleSubstringsCorrect2(testCase, stList_get(allAlleleSubstringsPoaSpace, 10), alleles10, 2,
+                                   stList_get(allRefPositionsPoaSpace, 10), 126, 128);
     rleString_destruct(refRleString);
+
 
     // same for alleles in specific region
     stList *regionVcfEntries = getVcfEntriesForRegion(vcfEntryMap, NULL, "vcfTest2", 64, 128);
@@ -265,32 +267,32 @@ void test_vcfAlleleSubstrings(CuTest *testCase) {
     for (int64_t i = 0; i < stList_length(regionVcfEntries); i++) {
         int64_t start, end;
         stList_append(allRegionAlleleSubstrings, getAlleleSubstrings(stList_get(regionVcfEntries, i),
-                                                                     refRleString, params, &start, &end));
+                                                                     refRleString, params, &start, &end, TRUE));
         stList_append(allRegionRefPositions, stIntTuple_construct2(start, end));
     }
 
     CuAssertTrue(testCase, stList_length(allRegionAlleleSubstrings) == 7);
     char *regionAlleles4[] = {"GAC", "GCCAC"};
     assertAlleleSubstringsCorrect2(testCase, stList_get(allRegionAlleleSubstrings, 0), regionAlleles4, 2,
-                                   stList_get(allRegionRefPositions, 0), 0, 3);
+                                   stList_get(allRegionRefPositions, 0), 1, 4);
     assertAlleleSubstringsCorrect2(testCase, stList_get(allRegionAlleleSubstrings, 1), alleles5, 3,
-                                   stList_get(allRegionRefPositions, 1), 6, 11);
+                                   stList_get(allRegionRefPositions, 1), 7, 12);
     assertAlleleSubstringsCorrect2(testCase, stList_get(allRegionAlleleSubstrings, 2), alleles6, 2,
-                                   stList_get(allRegionRefPositions, 2), 14, 21);
+                                   stList_get(allRegionRefPositions, 2), 15, 22);
     assertAlleleSubstringsCorrect2(testCase, stList_get(allRegionAlleleSubstrings, 3), alleles7, 3,
-                                   stList_get(allRegionRefPositions, 3), 22, 30);
+                                   stList_get(allRegionRefPositions, 3), 23, 31);
     assertAlleleSubstringsCorrect2(testCase, stList_get(allRegionAlleleSubstrings, 4), alleles8, 4,
-                                   stList_get(allRegionRefPositions, 4), 30, 37);
+                                   stList_get(allRegionRefPositions, 4), 31, 38);
     assertAlleleSubstringsCorrect2(testCase, stList_get(allRegionAlleleSubstrings, 5), alleles9, 2,
-                                   stList_get(allRegionRefPositions, 5), 60, 64);
+                                   stList_get(allRegionRefPositions, 5), 61, 64);
     assertAlleleSubstringsCorrect2(testCase, stList_get(allRegionAlleleSubstrings, 6), alleles10, 2,
-                                   stList_get(allRegionRefPositions, 6), 61, 64);
+                                   stList_get(allRegionRefPositions, 6), 62, 64);
 
     rleString_destruct(refRleString);
     stList_destruct(allRegionRefPositions);
     stList_destruct(allRegionAlleleSubstrings);
-    stList_destruct(allRefPositions);
-    stList_destruct(allAlleleSubstrings);
+    stList_destruct(allRefPositionsPoaSpace);
+    stList_destruct(allAlleleSubstringsPoaSpace);
     stList_destruct(regionVcfEntries);
     stHash_destruct(vcfEntryMap);
     params_destruct(params);

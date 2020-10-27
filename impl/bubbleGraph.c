@@ -524,7 +524,7 @@ stList *getReadSubstrings2(stList *bamChunkReads, Poa *poa, int64_t from, int64_
 
     // Deal with boundary cases
     if (from == 0) {
-        if (to == stList_length(poa->nodes)) {
+        if (to >= stList_length(poa->nodes)) {
             // If from and to reference positions that bound the complete alignment just
             // copy the complete reads
             for (int64_t i = 0; i < stList_length(bamChunkReads); i++) {
@@ -546,7 +546,7 @@ stList *getReadSubstrings2(stList *bamChunkReads, Poa *poa, int64_t from, int64_
             i = skipDupes(node, ++i, obs->readNo);
         }
         return shouldFilter ? filterReadSubstrings(readSubstrings, params) : readSubstrings;
-    } else if (to == stList_length(poa->nodes)) {
+    } else if (to >= stList_length(poa->nodes)) {
         // Finally, include the read suffixs that start at from
         PoaNode *node = stList_get(poa->nodes, from);
         int64_t i = 0;
@@ -985,7 +985,7 @@ BubbleGraph *bubbleGraph_constructFromPoaAndVCF(Poa *poa, stList *bamChunkReads,
                         stList_append(bubbles, b);
 
                         // Set the coordinates
-                        b->refStart = pAnchor;
+                        b->refStart = pAnchor + 1;
                         b->bubbleLength = i - 1 - pAnchor;
 
                         // get variant positions
@@ -1123,19 +1123,20 @@ BubbleGraph *bubbleGraph_constructFromPoaAndVCFOnlyVCFAllele(Poa *poa, stList *b
     int64_t lastRefEndPos = -1;
     for (int64_t v = 0; v < stList_length(vcfEntries); v++) {
         VcfEntry *vcf = stList_get(vcfEntries, v);
-        int64_t refStartPos, refEndPos;
+        int64_t refStartPos, refEndPosIncl;
         stList *alleles = getAlleleSubstrings2(vcf, referenceSeq, referenceSeqRLE->nonRleLength, &refStartPos,
-                &refEndPos, params->polishParams->columnAnchorTrim, params->polishParams->useRunLengthEncoding);
+                &refEndPosIncl, TRUE, params->polishParams->columnAnchorTrim, params->polishParams->useRunLengthEncoding);
         assert(stList_length(alleles) >= 2);
-        if (refStartPos < lastRefEndPos) {
+        //TODO now we enforce no fasta write, so this is not an issue anymore
+        /*if (refStartPos < lastRefEndPos) {
             st_logInfo("  Skipping variant at original reference pos %"PRId64" for overlap with previous variant\n",
                     vcf->rawRefPosInformativeOnly);
             stList_destruct(alleles);
             continue;
-        }
+        }*/
 
         // Get read substrings
-        stList *readSubstrings = getReadSubstrings(bamChunkReads, poa, refStartPos, refEndPos, params->polishParams);
+        stList *readSubstrings = getReadSubstrings(bamChunkReads, poa, refStartPos, refEndPosIncl, params->polishParams);
 
         // nothing to phase with
         if(stList_length(readSubstrings) == 0) {
@@ -1153,7 +1154,7 @@ BubbleGraph *bubbleGraph_constructFromPoaAndVCFOnlyVCFAllele(Poa *poa, stList *b
         stList_append(bubbles, b);
 
         b->refStart = (uint64_t) refStartPos;
-        b->bubbleLength = (uint64_t) refEndPos - refStartPos;
+        b->bubbleLength = (uint64_t) refEndPosIncl - refStartPos;
 
         // get variant positions
         b->variantPositionOffsets = stList_construct();
@@ -1303,11 +1304,12 @@ BubbleGraph *bubbleGraph_partitionFilteredReads(Poa *poa, stList *bamChunkReads,
         stList_append(alleles, rleString_expand(hap2));
 
         // get read substrings
-        stList *readSubstrings = getReadSubstrings2(bamChunkReads, poa, refStart+1, refStart+primaryBubble->bubbleLength + 1,
+        stList *readSubstrings = getReadSubstrings2(bamChunkReads, poa, refStart, refStart+primaryBubble->bubbleLength+1,
                 params, FALSE);
 
         // Get existing reference string
-        RleString *existingRefSubstring = rleString_copySubstring(poa->refString, refStart, primaryBubble->bubbleLength);
+        // ref string is 0-based, non-N poa nodes are 1-based
+        RleString *existingRefSubstring = rleString_copySubstring(poa->refString, refStart-1, primaryBubble->bubbleLength);
         assert(existingRefSubstring->length == primaryBubble->bubbleLength);
         char *expandedExistingRefSubstring = rleString_expand(existingRefSubstring);
 
@@ -1320,6 +1322,11 @@ BubbleGraph *bubbleGraph_partitionFilteredReads(Poa *poa, stList *bamChunkReads,
             }
         }
         if (!seenRefAllele) {
+            char *allRefSubstrings = stString_join2(", ", alleles);
+            st_logInfo(" %s While partitioning filtered reads at %"PRId64"(+%"PRId64"), did not see ref allele '%s': %s\n",
+                    logIdentifier, primaryBubble->refStart, primaryBubble->bubbleLength, expandedExistingRefSubstring,
+                    allRefSubstrings);
+            free(allRefSubstrings);
             stList_append(alleles, stString_copy(expandedExistingRefSubstring));
         }
 

@@ -3,6 +3,7 @@
 //
 
 #include <htslib/thread_pool.h>
+#include <htslib/faidx.h>
 #include "htsIntegration.h"
 #include "margin.h"
 #include "lp_lib.h"
@@ -133,6 +134,7 @@ int64_t getReadDepthInfoBucketSize(int64_t chunkSize) {
 }
 
 int64_t getEstimatedChunkDepth(stList *chunkDepths, int64_t contigStartPos, int64_t contigEndPos, int64_t chunkSize) {
+    if (chunkDepths == NULL) return 0;
     int64_t bucketSize = getReadDepthInfoBucketSize(chunkSize);
     contigStartPos = contigStartPos/bucketSize;
     contigEndPos = contigEndPos/bucketSize;
@@ -379,6 +381,67 @@ BamChunker *bamChunker_construct2(char *bamFile, char *regionStr, PolishParams *
     return chunker;
 }
 
+BamChunker *bamChunker_constructFromFasta(char *fastaFile, char *bamFile, char *regionStr, PolishParams *params) {
+    faidx_t *fai = fai_load_format(fastaFile, FAI_FASTA);
+    if ( !fai ) {
+        st_errAbort("[faidx] Could not load fai index of %s\n", fastaFile);
+    }
+
+    // standard parameters
+    uint64_t chunkSize = params->chunkSize;
+    uint64_t chunkBoundary = params->chunkBoundary;
+    bool includeSoftClip = params->includeSoftClipping;
+
+    // the chunker we're building
+    BamChunker *chunker = malloc(sizeof(BamChunker));
+    chunker->bamFile = stString_copy(bamFile);
+    chunker->chunkSize = chunkSize;
+    chunker->chunkBoundary = chunkBoundary;
+    chunker->includeSoftClip = includeSoftClip;
+    chunker->params = params;
+    chunker->chunks = stList_construct3(0, (void *) bamChunk_destruct);
+    chunker->chunkCount = 0;
+
+    if (regionStr != NULL) {
+        // prep parsing seq
+        char regionContig[128] = "";
+        int regionStart = 0;
+        int regionEnd = 0;
+        int scanRet = sscanf(regionStr, "%[^:]:%d-%d", regionContig, &regionStart, &regionEnd);
+        if (scanRet != 3 && scanRet != 1) {
+            st_errAbort("Region in unexpected format (expected %%s:%%d-%%d or %%s)): %s", regionStr);
+        } else if (regionStart < 0 || regionEnd < 0 || regionEnd < regionStart) {
+            st_errAbort("Start and end locations in region must be positive, start must be less than end: %s", regionStr);
+        }
+        // get actual values
+        int seqLen;
+        char *seq = fai_fetch(fai, regionStr, &seqLen);
+        int64_t savedChunkCount = saveContigChunks(chunker->chunks, chunker, regionContig,
+                                                   regionStart, regionStart + seqLen - 1, chunkSize, chunkBoundary,
+                                                   NULL);
+        chunker->chunkCount += savedChunkCount;
+        free(seq);
+    } else {
+        char *faiFile = stString_print("%s.fai", fastaFile);
+        FILE *fp = fopen(faiFile, "r");
+        char *line = NULL;
+        while ((line = stFile_getLineFromFile(fp)) != NULL) {
+            stList *parts = stString_splitByString(line, "\t");
+            if (stList_length(parts) < 2) st_errAbort("Unexpected fasta index file format: %s\n", faiFile);
+
+            int64_t savedChunkCount = saveContigChunks(chunker->chunks, chunker, stList_get(parts, 0),
+                                                       0, atol(stList_get(parts, 1)), chunkSize, chunkBoundary,
+                                                       NULL);
+            chunker->chunkCount += savedChunkCount;
+        }
+    }
+    assert(chunker->chunkCount == stList_length(chunker->chunks));
+
+    // cleanup and close
+    fai_destroy(fai);
+    return chunker;
+}
+
 BamChunker *bamChunker_copyConstruct(BamChunker *toCopy) {
     BamChunker *chunker = malloc(sizeof(BamChunker));
     chunker->bamFile = stString_copy(toCopy->bamFile);
@@ -469,12 +532,14 @@ uint32_t convertToReadsAndAlignmentsWithFiltered(BamChunk *bamChunk, RleString *
     char *contig = bamChunk->refSeqName;
     uint32_t savedAlignments = 0;
     double randomDiscardChance = 1.0;
-    if (bamChunk->estimatedDepth > polishParams->excessiveDepthThreshold) {
+    //removing reads in filtering step is working, so taking this out for now
+    //  (also removing the check in the loop below)
+    /*if (bamChunk->estimatedDepth > polishParams->excessiveDepthThreshold) {
         char *logIdentifier = getLogIdentifier();
         randomDiscardChance = 1.0 * polishParams->excessiveDepthThreshold / bamChunk->estimatedDepth;
         st_logInfo(" %s Randomly removing reads from excessively deep (%"PRId64"/%"PRId64") chunk with chance %f\n",
                 logIdentifier, bamChunk->estimatedDepth, polishParams->excessiveDepthThreshold, 1.0 - randomDiscardChance);
-    }
+    }*/
 
     // prep for index (not entirely sure what all this does.  see samtools/sam_view.c
     int filter_state = ALL, filter_op = 0;
@@ -525,8 +590,9 @@ uint32_t convertToReadsAndAlignmentsWithFiltered(BamChunk *bamChunk, RleString *
             continue; //secondary
         if (!polishParams->includeSupplementaryAlignments && (aln->core.flag & (uint16_t) 0x800) != 0)
             continue; //supplementary
-        if (st_random() > randomDiscardChance)
-            continue; // chunk is too deep
+        // see above, taking this out as removal in filtering step is working
+        /*if (st_random() > randomDiscardChance)
+            continue; // chunk is too deep*/
         if (aln->core.qual < polishParams->filterAlignmentsWithMapQBelowThisThreshold) { //low mapping quality
             if (filteredReads == NULL) continue;
             filtered = TRUE;
@@ -1290,9 +1356,9 @@ void saveFinishedVcfEntries(stHash *currentVcfEntries, int64_t currentAlnRefPos,
     stHashIterator *currVcfEntryItor = stHash_getIterator(currentVcfEntries);
     VcfEntry *currVcfEntry = NULL;
     while ((currVcfEntry = stHash_getNext(currVcfEntryItor)) != NULL) {
-        if (endOfRead || currVcfEntry->refAlnStopExcl <= currentAlnRefPos) {
+        if (endOfRead || currVcfEntry->refAlnStopIncl <= currentAlnRefPos) {
             // in theory we should always land exactly on the end pos
-            assert(endOfRead || currVcfEntry->refAlnStopExcl == currentAlnRefPos);
+            assert(endOfRead || currVcfEntry->refAlnStopIncl == currentAlnRefPos);
 
             // read start and stop pos
             int64_t seqStartPos = (int64_t) stHash_search(currentVcfEntries, currVcfEntry);
@@ -1583,4 +1649,27 @@ uint32_t extractReadSubstringsAtVariantPositions(BamChunk *bamChunk, stList *vcf
     sam_close(in);
 
     return savedAlignments;
+}
+
+
+char *getSequenceFromReference(char *fastaFile, char *contig, int64_t startPos, int64_t endPosExcl) {
+    faidx_t *fai = fai_load_format(fastaFile, FAI_FASTA);
+    if ( !fai ) {
+        st_errAbort("[faidx] Could not load fai index of %s\n", fastaFile);
+    }
+    // the faidx api is 1 based, tolerates use of idx 0 (ignores it), and is inclusive
+    // this effectively makes it 0-based and exclusive
+    startPos++;
+    char *regionStr = stString_print("%s:%"PRId64"-%"PRId64, contig, startPos, endPosExcl);
+    int seqLen;
+    char *seq = fai_fetch(fai, regionStr, &seqLen);
+
+    // sanity check
+    assert(seqLen == endPosExcl - startPos + 1); // this sequence is 1-based (but tolerates idx 0)
+    assert(seqLen == strlen(seq)); // seq len returns size of seq w/ \0-termination
+
+    // close and return
+    free(regionStr);
+    fai_destroy(fai);
+    return seq;
 }

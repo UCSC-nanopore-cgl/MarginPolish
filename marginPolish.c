@@ -394,9 +394,6 @@ int main(int argc, char *argv[]) {
         params_printParameters(params, stderr);
     }
 
-    // get reference sequences (and remove cruft after refName)
-    stHash *referenceSequences = parseReferenceSequences(referenceFastaFile);
-
     // get vcf entries (if set)
     stHash *vcfEntries = NULL;
     if (vcfFile != NULL) {
@@ -525,23 +522,9 @@ int main(int argc, char *argv[]) {
             free(timeDescriptor);
         }
 
-        // Get reference string for chunk of alignment
-        char *fullReferenceString = stHash_search(referenceSequences, bamChunk->refSeqName);
-        if (fullReferenceString == NULL) {
-            st_errAbort(
-                    "ERROR: Reference sequence missing from reference map: %s. Perhaps the BAM and REF are mismatched?",
-                    bamChunk->refSeqName);
-        }
-        int64_t fullRefLen = strlen(fullReferenceString);
-        if (bamChunk->chunkOverlapStart > fullRefLen) {
-            st_errAbort("ERROR: Reference sequence %s has length %"PRId64", chunk %"PRId64" has start position %"
-                        PRId64". Perhaps the BAM and REF are mismatched?",
-                        bamChunk->refSeqName, fullRefLen, chunkIdx, bamChunk->chunkOverlapStart);
-        }
-        RleString *rleReference = bamChunk_getReferenceSubstring(bamChunk, referenceSequences, params);
-        st_logInfo(">%s Going to process a chunk (~%"PRId64"x) for reference sequence: %s, starting at: %i and ending at: %i\n",
-                   logIdentifier, bamChunk->estimatedDepth, bamChunk->refSeqName, (int) bamChunk->chunkOverlapStart,
-                   (int) (fullRefLen < bamChunk->chunkOverlapEnd ? fullRefLen : bamChunk->chunkOverlapEnd));
+        RleString *rleReference = bamChunk_getReferenceSubstring(bamChunk, referenceFastaFile, params);
+        st_logInfo(">%s Going to process a chunk for reference sequence: %s, starting at: %i and ending at: %i\n",
+                   logIdentifier, bamChunk->refSeqName, (int) bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd);
 
         // Convert bam lines into corresponding reads and alignments
         st_logInfo(" %s Parsing input reads from file: %s\n", logIdentifier, bamInFile);
@@ -795,6 +778,40 @@ int main(int argc, char *argv[]) {
                 st_logInfo(" %s Assigning %"PRId64" filtered reads to haplotypes\n", logIdentifier, stList_length(filteredReads));
                 removeReadsOnlyInChunkBoundary(bamChunk, filteredReads, filteredAlignments, logIdentifier);
 
+                // we want to only keep up to excessiveDepthThreshold filtered reads
+                // get downsampling structures
+                stList *filteredMaintainedReads = stList_construct3(0, (void (*)(void *)) bamChunkRead_destruct);
+                stList *filteredMaintainedAlignments = stList_construct3(0, (void (*)(void *)) stList_destruct);
+                stList *filteredFilteredReads = stList_construct3(0, (void (*)(void *)) bamChunkRead_destruct);
+                stList *filteredFilteredAlignments = stList_construct3(0, (void (*)(void *)) stList_destruct);
+                bool didDownsample = downsampleViaFullReadLengthLikelihood(params->polishParams->excessiveDepthThreshold,
+                        bamChunk,  filteredReads, filteredAlignments, filteredMaintainedReads,
+                        filteredMaintainedAlignments, filteredFilteredReads,  filteredFilteredAlignments);
+
+                // we need to destroy data structures
+                if (didDownsample) {
+                    st_logInfo(" %s Downsampled filtered reads from %"PRId64" to %"PRId64" reads\n", logIdentifier,
+                               stList_length(filteredReads), stList_length(filteredMaintainedReads));
+                    // still has all the old reads, need to not free these
+                    stList_setDestructor(filteredReads, NULL);
+                    stList_setDestructor(filteredAlignments, NULL);
+                    stList_destruct(filteredReads);
+                    stList_destruct(filteredAlignments);
+                    // and keep the filtered reads
+                    filteredReads = filteredMaintainedReads;
+                    filteredAlignments = filteredMaintainedAlignments;
+                }
+                // no downsampling, we just need to free the (empty) maintained read objects
+                else {
+                    assert(stList_length(filteredMaintainedReads) == 0);
+                    assert(stList_length(filteredMaintainedAlignments) == 0);
+                    stList_destruct(filteredMaintainedReads);
+                    stList_destruct(filteredMaintainedAlignments);
+                }
+                // always destroy these (they're either empty or we don't need the reads anymore)
+                stList_destruct(filteredFilteredReads);
+                stList_destruct(filteredFilteredAlignments);
+
                 time_t filteredPhasingStart = time(NULL);
                 Poa *filteredPoa = NULL;
                 if (skipRealignment) {
@@ -943,7 +960,7 @@ int main(int argc, char *argv[]) {
             int regionEnd = 0;
             int scanRet = sscanf(regionStr, "%[^:]:%d-%d", regionContig, &regionStart, &regionEnd);
             if (scanRet != 3) {
-                regionEnd = (int) strlen(stHash_search(referenceSequences, regionContig));
+                regionEnd = (int)((BamChunk*)stList_get(bamChunker->chunks, bamChunker->chunkCount -1))->chunkOverlapEnd;
             }
             whbBamChunk = bamChunk_construct2(regionContig, -1, regionStart, regionStart, regionEnd,
                     regionEnd, 0, bamChunker);
@@ -977,7 +994,6 @@ int main(int argc, char *argv[]) {
         bamChunker_destruct(truthHaplotypesBamChunker);
     }
     bamChunker_destruct(bamChunker);
-    stHash_destruct(referenceSequences);
     params_destruct(params);
     if (trueReferenceBam != NULL) free(trueReferenceBam);
     if (regionStr != NULL) free(regionStr);

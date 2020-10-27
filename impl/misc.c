@@ -82,19 +82,12 @@ FILE *safe_fopen(char *file, char *openStr) {
     return fp;
 }
 
-RleString *bamChunk_getReferenceSubstring(BamChunk *bamChunk, stHash *referenceSequences, Params *params) {
+RleString *bamChunk_getReferenceSubstring(BamChunk *bamChunk, char *referenceFile, Params *params) {
     /*
      * Get corresponding substring of the reference for a given bamChunk.
      */
-    char *fullReferenceString = stHash_search(referenceSequences, bamChunk->refSeqName);
-    if (fullReferenceString == NULL) {
-        st_logCritical("> ERROR: Reference sequence missing from reference map: %s \n", bamChunk->refSeqName);
-        return NULL;
-    }
-    int64_t refLen = strlen(fullReferenceString);
-    char *referenceString = stString_getSubString(fullReferenceString, bamChunk->chunkOverlapStart,
-                                                  (refLen < bamChunk->chunkOverlapEnd ? refLen : bamChunk->chunkOverlapEnd) - bamChunk->chunkOverlapStart);
-
+    char *referenceString = getSequenceFromReference(referenceFile, bamChunk->refSeqName, bamChunk->chunkOverlapStart,
+                                                     bamChunk->chunkOverlapEnd);
     int64_t subRefLen = strlen(referenceString);
     // TODO: Decide where the proper place to do this is
     for (int64_t i = 0; i < subRefLen; i++) {
