@@ -1086,7 +1086,7 @@ bool downsampleViaFullReadLengthLikelihood(int64_t intendedDepth, BamChunk *bamC
             stList_append(discardedAlignments, stList_get(inputAlignments, i));
         }
     }
-    st_logInfo(" %s Downsampled chunk via het sites to average depth %.2fx (expected %dx)\n",
+    st_logInfo(" %s Downsampled chunk via full read length to average depth %.2fx (expected %dx)\n",
                logIdentifier, 1.0 * totalKeptNucleotides / chunkSize, intendedDepth);
 
     free(probs);
@@ -1095,6 +1095,71 @@ bool downsampleViaFullReadLengthLikelihood(int64_t intendedDepth, BamChunk *bamC
     free(logIdentifier);
     return TRUE;
 }
+
+
+
+bool downsampleBamChunkReadWithVcfEntrySubstringsViaFullReadLengthLikelihood(int64_t intendedDepth,
+                                                                             stList *chunkVcfEntries,
+                                                                             stList *inputReads,
+                                                                             stList *maintainedReads,
+                                                                             stList *discardedReads) {
+
+    // calculate depth, generate bcrwhs list
+    int64_t totalVcfEntries = 0;
+
+    int *readLengths = st_calloc(stList_length(inputReads), sizeof(int));
+    int *readFullLengths = st_calloc(stList_length(inputReads), sizeof(int));
+
+    for (int64_t i = 0; i < stList_length(inputReads); i++) {
+        BamChunkRead *bcr = stList_get(inputReads, i);
+        BamChunkReadVcfEntrySubstrings *bcrves = bcr->bamChunkReadVcfEntrySubstrings;
+        assert(bcrves != NULL);
+        totalVcfEntries += (int) stList_length(bcrves->vcfEntries);
+        readLengths[i] = (int) stList_length(bcrves->vcfEntries);
+        // give reads a pseudocount
+        readFullLengths[i] = (int) bcr->fullReadLength;
+    }
+    int64_t chunkSize = stList_length(chunkVcfEntries);
+    double averageDepth = 1.0 * totalVcfEntries / (chunkSize);
+
+    // do we need to downsample?
+    if (averageDepth < intendedDepth) {
+        free(readLengths);
+        free(readFullLengths);
+        return FALSE;
+    }
+
+    // we do need to downsample
+    char *logIdentifier = getLogIdentifier();
+    st_logInfo(" %s Downsampling chunk via spanned variant count with average depth %.2fx to %dx.\n",
+               logIdentifier, averageDepth, intendedDepth);
+
+    // get likelihood of keeping each read
+    double *probs = computeReadProbsByLengthAndSecondMetric(readLengths, readFullLengths,
+                                                            (int) stList_length(inputReads),
+                                                            intendedDepth, (int) chunkSize);
+
+    // keep some ratio of reads
+    int64_t totalKeptVariants = 0;
+    for (int64_t i = 0; i < stList_length(inputReads); i++) {
+        BamChunkRead *bcr = stList_get(inputReads, i);
+        if (st_random() < probs[i]) {
+            stList_append(maintainedReads, stList_get(inputReads, i));
+            totalKeptVariants += stList_length(bcr->bamChunkReadVcfEntrySubstrings->readSubstrings);
+        } else {
+            stList_append(discardedReads, stList_get(inputReads, i));
+        }
+    }
+    st_logInfo(" %s Downsampled chunk via spanned variant count with to average depth %.2fx (expected %dx)\n",
+               logIdentifier, 1.0 * totalKeptVariants / chunkSize, intendedDepth);
+
+    free(probs);
+    free(readLengths);
+    free(readFullLengths);
+    free(logIdentifier);
+    return TRUE;
+}
+
 
 
 
@@ -1364,13 +1429,12 @@ void saveFinishedVcfEntries(stHash *currentVcfEntries, int64_t currentAlnRefPos,
             int64_t seqStartPos = (int64_t) stHash_search(currentVcfEntries, currVcfEntry);
             int64_t seqEndPos = cigarIdxInSeq + startSoftclipAmount;
 
-            // length of seq
+            // unsaved termination cases: delete over full variant, or end of read and haven't gotten to variant pos
             int64_t seqLen = seqEndPos - seqStartPos;
-            if (endOfRead && currentAlnRefPos <= currVcfEntry->refPos) {
+            if (seqLen == 0 || (endOfRead && currentAlnRefPos < currVcfEntry->refPos)) {
                 stList_append(noLongerCurrentVcfEntries, currVcfEntry);
                 continue;
             }
-            assert(seqLen > 0);
 
             // get sequence
             char *seq = st_calloc(seqLen + 1, sizeof(char));
@@ -1402,10 +1466,14 @@ void saveFinishedVcfEntries(stHash *currentVcfEntries, int64_t currentAlnRefPos,
             stList_append(noLongerCurrentVcfEntries, currVcfEntry);
         }
     }
+
     // remove any vcf entries we're finished with
     for (int64_t r = 0; r < stList_length(noLongerCurrentVcfEntries); r++) {
         stHash_remove(currentVcfEntries, stList_get(noLongerCurrentVcfEntries, r));
     }
+
+    // cleanup
+    stHash_destructIterator(currVcfEntryItor);
     stList_destruct(noLongerCurrentVcfEntries);
 }
 
@@ -1423,13 +1491,6 @@ uint32_t extractReadSubstringsAtVariantPositions(BamChunk *bamChunk, stList *vcf
     char *bamFile = bamChunk->parent->bamFile;
     char *contig = bamChunk->refSeqName;
     uint32_t savedAlignments = 0;
-    double randomDiscardChance = 1.0;
-    if (bamChunk->estimatedDepth > polishParams->excessiveDepthThreshold) {
-        char *logIdentifier = getLogIdentifier();
-        randomDiscardChance = 1.0 * polishParams->excessiveDepthThreshold / bamChunk->estimatedDepth;
-        st_logInfo(" %s Randomly removing reads from excessively deep (%"PRId64"/%"PRId64") chunk with chance %f\n",
-                   logIdentifier, bamChunk->estimatedDepth, polishParams->excessiveDepthThreshold, 1.0 - randomDiscardChance);
-    }
 
     // prep for index (not entirely sure what all this does.  see samtools/sam_view.c
     int filter_state = ALL, filter_op = 0;
@@ -1480,8 +1541,6 @@ uint32_t extractReadSubstringsAtVariantPositions(BamChunk *bamChunk, stList *vcf
             continue; //secondary
         if (!polishParams->includeSupplementaryAlignments && (aln->core.flag & (uint16_t) 0x800) != 0)
             continue; //supplementary
-        if (st_random() > randomDiscardChance)
-            continue; // chunk is too deep
         if (aln->core.qual < polishParams->filterAlignmentsWithMapQBelowThisThreshold) { //low mapping quality
             if (filteredReads == NULL) continue;
             filtered = TRUE;
@@ -1508,19 +1567,21 @@ uint32_t extractReadSubstringsAtVariantPositions(BamChunk *bamChunk, stList *vcf
         uint8_t *qualBits = bam_get_qual(aln);
         bool forwardStrand = !bam_is_rev(aln);
 
+        if (stString_eq("read_1_onlySpanVariantBoundaries", readName)) {
+            fprintf(stderr, "");
+        }
+
         // for vcf tracking at local level
-        int64_t nextVcfEntriesIndex = binarySearchVcfListForFirstIndexAfterRefPos(vcfEntries, alnStartPos);
+        // +1 because vcf->refPos is in 1-based space, and this reference position is in 0-based
+        int64_t nextVcfEntriesIndex = binarySearchVcfListForFirstIndexAfterRefPos(vcfEntries, alnStartPos - chunkOverlapStart + 1);
         if (nextVcfEntriesIndex == -1) continue; // all vcf entries are before this read's start
         stHash *currentVcfEntries = stHash_construct(); // current vcf entries to read start pos
-        // for vcf tracking at read level
-        stList *readSubstrings = stList_construct3(0, free);
-        stList *substringsToVcf = stList_construct();
         // the bcrves we will be populating with vcf substrings
-        BamChunkReadVcfEntrySubstrings *bcrves = bamChunkReadVcfEntrySubstrings_construct(readName, forwardStrand, alnReadLength);
+        BamChunkReadVcfEntrySubstrings *bcrves = bamChunkReadVcfEntrySubstrings_construct();
+        BamChunkRead *bcr = bamChunkRead_constructWithVcfEntrySubstrings(readName, forwardStrand, alnReadLength, bcrves);
 
         // get cigar and rep
         uint32_t *cigar = bam_get_cigar(aln);
-        stList *cigRepr = stList_construct3(0, (void (*)(void *)) stIntTuple_destruct);
 
         // Variables to keep track of position in sequence / cigar operations
         int64_t cig_idx = 0;
@@ -1548,6 +1609,10 @@ uint32_t extractReadSubstringsAtVariantPositions(BamChunk *bamChunk, stList *vcf
             firstNonSoftclipAlignedReadIdxInChunk = 0;
         }
 
+        if (stString_eq("read_1_onlySpanVariantBoundaries", readName)) {
+            fprintf(stderr, "");
+        }
+
         // start with any vcf entries that may coincide with the beginning of the read
         if (start_softclip == 0) {
             saveStartingVcfEntries(vcfEntries, currentVcfEntries, &nextVcfEntriesIndex, cigarIdxInRef,
@@ -1572,8 +1637,6 @@ uint32_t extractReadSubstringsAtVariantPositions(BamChunk *bamChunk, stList *vcf
             // handle current character
             if (cigarOp == BAM_CMATCH || cigarOp == BAM_CEQUAL || cigarOp == BAM_CDIFF) {
                 if (cigarIdxInRef >= chunkOverlapStart && cigarIdxInRef < chunkOverlapEnd) {
-                    stList_append(cigRepr, stIntTuple_construct3(cigarIdxInRef + refCigarModification,
-                                                                 cigarIdxInSeq, polishParams->p->diagonalExpansion));
                     alignedReadLength++;
                 }
                 cigarIdxInSeq++;
@@ -1626,7 +1689,7 @@ uint32_t extractReadSubstringsAtVariantPositions(BamChunk *bamChunk, stList *vcf
         assert(stHash_size(currentVcfEntries) == 0);
 
         // save
-        stList_append(filtered ? filteredReads: reads, bcrves);
+        stList_append(filtered ? filteredReads: reads, bcr);
 
         savedAlignments++;
 
@@ -1667,6 +1730,11 @@ char *getSequenceFromReference(char *fastaFile, char *contig, int64_t startPos, 
     // sanity check
     assert(seqLen == endPosExcl - startPos + 1); // this sequence is 1-based (but tolerates idx 0)
     assert(seqLen == strlen(seq)); // seq len returns size of seq w/ \0-termination
+
+    // convert to upper
+    for (int i = 0; i < seqLen; i++) {
+        seq[i] = (char) toupper(seq[i]);
+    }
 
     // close and return
     free(regionStr);

@@ -203,7 +203,7 @@ int main(int argc, char *argv[]) {
 
     // update depth (if set)
     if (maxDepth >= 0) {
-        st_logCritical("> Changing POLISH maxDepth parameter from %"PRId64" to %"PRId64"\n", params->polishParams->maxDepth,
+        st_logCritical("> Changing maxDepth parameter from %"PRId64" to %"PRId64"\n", params->polishParams->maxDepth,
                        maxDepth);
         params->polishParams->maxDepth = (uint64_t) maxDepth;
     }
@@ -212,9 +212,6 @@ int main(int argc, char *argv[]) {
     if (st_getLogLevel() == debug) {
         params_printParameters(params, stderr);
     }
-
-    // get reference sequences (and remove cruft after refName)
-    stHash *referenceSequences = parseReferenceSequences(referenceFastaFile);
 
     // get vcf entries (if set)
     stHash *vcfEntries = NULL;
@@ -318,50 +315,30 @@ int main(int argc, char *argv[]) {
         }
 
         // Get reference string for chunk of alignment
-        char *fullReferenceString = stHash_search(referenceSequences, bamChunk->refSeqName);
-        if (fullReferenceString == NULL) {
-            st_errAbort(
-                    "ERROR: Reference sequence missing from reference map: %s. Perhaps the BAM and REF are mismatched?",
-                    bamChunk->refSeqName);
-        }
-        int64_t fullRefLen = strlen(fullReferenceString);
-        if (bamChunk->chunkOverlapStart > fullRefLen) {
-            st_errAbort("ERROR: Reference sequence %s has length %"PRId64", chunk %"PRId64" has start position %"
-                        PRId64". Perhaps the BAM and REF are mismatched?",
-                        bamChunk->refSeqName, fullRefLen, chunkIdx, bamChunk->chunkOverlapStart);
-        }
-        st_logInfo(">%s Going to process a chunk (~%"PRId64"x) for reference sequence: %s, starting at: %i and ending at: %i\n",
-                   logIdentifier, bamChunk->estimatedDepth, bamChunk->refSeqName, (int) bamChunk->chunkOverlapStart,
-                   (int) (fullRefLen < bamChunk->chunkOverlapEnd ? fullRefLen : bamChunk->chunkOverlapEnd));
-
-        // get ref string
-        RleString *chunkReferenceRLE = bamChunk_getReferenceSubstring(bamChunk, referenceSequences, params);
-        char *chunkReferenceRAW = rleString_expand(chunkReferenceRLE);
+        char *chunkReference = getSequenceFromReference(referenceFastaFile, bamChunk->refSeqName,
+                bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd);
+        st_logInfo(">%s Going to process a chunk for reference sequence: %s, starting at: %i and ending at: %i\n",
+                   logIdentifier, bamChunk->refSeqName, (int) bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd);
 
         // get VCF string
-        uint64_t *rleMap = params->polishParams->useRunLengthEncoding ?
-                           rleString_getNonRleToRleCoordinateMap(chunkReferenceRLE) : NULL;
-        stList *chunkVcfEntries = getVcfEntriesForRegion(vcfEntries, rleMap, bamChunk->refSeqName,
+        stList *chunkVcfEntries = getVcfEntriesForRegion(vcfEntries, NULL, bamChunk->refSeqName,
                                                  bamChunk->chunkOverlapStart,  bamChunk->chunkOverlapEnd);
-        updateVcfEntriesWithSubstringsAndPositions(chunkVcfEntries, chunkReferenceRAW, strlen(chunkReferenceRAW), params);
-        if (rleMap != NULL) free(rleMap);
+        updateVcfEntriesWithSubstringsAndPositions(chunkVcfEntries, chunkReference, strlen(chunkReference),
+                FALSE, params);
 
         // Convert bam lines into corresponding reads and alignments
         st_logInfo(" %s Parsing input reads from file: %s\n", logIdentifier, bamInFile);
-        stList *reads = stList_construct3(0, (void (*)(void *)) bamChunkReadVcfEntrySubstrings_destruct);
-        stList *filteredReads = stList_construct3(0, (void (*)(void *)) bamChunkReadVcfEntrySubstrings_destruct);
+        stList *reads = stList_construct3(0, (void (*)(void *)) bamChunkRead_destruct);
+        stList *filteredReads = stList_construct3(0, (void (*)(void *)) bamChunkRead_destruct);
         extractReadSubstringsAtVariantPositions(bamChunk, chunkVcfEntries, reads, filteredReads, params->polishParams);
 
         // do downsampling if appropriate
-        //TODO downsample
-        /*if (params->polishParams->maxDepth > 0) {
+        if (params->polishParams->maxDepth > 0) {
             // get downsampling structures
             stList *maintainedReads = stList_construct3(0, (void (*)(void *)) bamChunkRead_destruct);
-            stList *maintainedAlignments = stList_construct3(0, (void (*)(void *)) stList_destruct);
 
-            bool didDownsample = downsampleViaFullReadLengthLikelihood(params->polishParams->maxDepth, bamChunk, reads,
-                                                                       alignments, maintainedReads, maintainedAlignments,
-                                                                       filteredReads, filteredAlignments);
+            bool didDownsample = downsampleBamChunkReadWithVcfEntrySubstringsViaFullReadLengthLikelihood(
+                    params->polishParams->maxDepth, chunkVcfEntries, reads, maintainedReads, filteredReads);
 
             // we need to destroy the discarded reads and structures
             if (didDownsample) {
@@ -369,214 +346,168 @@ int main(int argc, char *argv[]) {
                            stList_length(reads), stList_length(maintainedReads));
                 // still has all the old reads, need to not free these
                 stList_setDestructor(reads, NULL);
-                stList_setDestructor(alignments, NULL);
                 stList_destruct(reads);
-                stList_destruct(alignments);
                 // and keep the filtered reads
                 reads = maintainedReads;
-                alignments = maintainedAlignments;
             }
                 // no downsampling, we just need to free the (empty) objects
             else {
                 assert(stList_length(maintainedReads) == 0);
-                assert(stList_length(maintainedAlignments) == 0);
                 stList_destruct(maintainedReads);
-                stList_destruct(maintainedAlignments);
             }
-        }*/
+        }
 
-//        time_t primaryPhasingStart = time(NULL);
-//
-//        // iteratively find bubbles
-//        int64_t bubbleFindingIteration = 0;
-//        BubbleGraph *bg = NULL;
-//        stHash *readsToPSeqs = NULL;
-//        stSet *readsBelongingToHap1 = NULL, *readsBelongingToHap2 = NULL;
-//        stGenomeFragment *gf = NULL;
-//        stReference *ref = NULL;
-//
-//        // Get the bubble graph representation
-//        bg = bubbleGraph_constructFromPoaAndVCF(poa, reads, chunkVcfEntries, params->polishParams, TRUE);
-//
-//        // Now make a POA for each of the haplotypes
-//        ref = bubbleGraph_getReference(bg, bamChunk->refSeqName, params);
-//        gf = bubbleGraph_phaseBubbleGraph(bg, ref, reads, params, &readsToPSeqs);
-//
-//        stGenomeFragment_phaseBamChunkReads(gf, readsToPSeqs, reads, &readsBelongingToHap1, &readsBelongingToHap2,
-//                                            params->phaseParams);
-//        st_logInfo(" %s After phasing, of %i reads got %i reads partitioned into hap1 and %i reads partitioned "
-//                   "into hap2 (%i unphased)\n", logIdentifier, (int) stList_length(reads),
-//                   (int) stSet_size(readsBelongingToHap1), (int) stSet_size(readsBelongingToHap2),
-//                   (int) (stList_length(reads) - stSet_size(readsBelongingToHap1) -
-//                          stSet_size(readsBelongingToHap2)));
-//
-//        // Debug report of hets
-//        if (st_getLogLevel() <= info) {
-//            uint64_t totalHets = 0;
-//            for (uint64_t h = 0; h < gf->length; h++) {
-//                Bubble *b = &bg->bubbles[h + gf->refStart];
-//                if (gf->haplotypeString1[h] != gf->haplotypeString2[h]) {
-//                    st_logDebug(" %s Got predicted het at bubble %i %s %s\n", logIdentifier, (int) h + gf->refStart,
-//                                b->alleles[gf->haplotypeString1[h]]->rleString,
-//                                b->alleles[gf->haplotypeString2[h]]->rleString);
-//                    totalHets++;
-//                } else if (!rleString_eq(b->alleles[gf->haplotypeString1[h]], b->refAllele)) {
-//                    st_logDebug(" %s Got predicted hom alt at bubble %i %i\n", logIdentifier,
-//                                (int) h + gf->refStart,
-//                                (int) gf->haplotypeString1[h]);
-//                }
-//            }
-//            st_logInfo(" %s In phasing chunk, got: %i hets from: %i total sites (fraction: %f)\n", logIdentifier,
-//                       (int) totalHets, (int) gf->length, (float) totalHets / gf->length);
-//        }
-//
-//        st_logInfo(" %s Phased primary reads in %d sec\n", logIdentifier, time(NULL) - primaryPhasingStart);
-//
-//        // debugging output
-//        char *chunkBubbleOutFilename = NULL;
-//        FILE *chunkBubbleOut = NULL;
-//        uint64_t *reference_rleToNonRleCoordMap = rleString_getRleToNonRleCoordinateMap(chunkReferenceRLE);
-//        if (outputPhasingState) {
-//            // save info
-//            chunkBubbleOutFilename = stString_print("%s.C%05"PRId64".%s-%"PRId64"-%"PRId64".phasingInfo.json",
-//                                                    outputBase, chunkIdx,  bamChunk->refSeqName, bamChunk->chunkOverlapStart, bamChunk->chunkOverlapEnd);
-//            st_logInfo(" %s Saving chunk phasing info to: %s\n", logIdentifier, chunkBubbleOutFilename);
-//            chunkBubbleOut = safe_fopen(chunkBubbleOutFilename, "w");
-//            fprintf(chunkBubbleOut, "{\n");
-//            bubbleGraph_saveBubblePhasingInfo(bamChunk, bg, readsToPSeqs, gf, reference_rleToNonRleCoordMap,
-//                                              chunkBubbleOut);
-//        }
-//
-//        // should included filtered reads in output
-//        // get reads
-//        if (partitionFilteredReads) {
-//            for (int64_t bcrIdx = 0; bcrIdx < stList_length(reads); bcrIdx++) {
-//                //TODO not bcr anymore
-//                /*BamChunkRead *bcr = stList_get(reads, bcrIdx);
-//                if (!stSet_search(readsBelongingToHap1, bcr) && !stSet_search(readsBelongingToHap2, bcr)) {
-//                    // was filtered in some form
-//                    stList_append(filteredReads, bamChunkRead_constructCopy(bcr));
-//                }*/
-//            }
-//        }
-//        st_logInfo(" %s Assigning %"PRId64" filtered reads to haplotypes\n", logIdentifier, stList_length(filteredReads));
-//
-//        time_t filteredPhasingStart = time(NULL);
-//
-//        bubbleGraph_partitionFilteredReads(filteredPoa, filteredReads, gf, bg, bamChunk,
-//                                           reference_rleToNonRleCoordMap, readsBelongingToHap1,
-//                                           readsBelongingToHap2, params->polishParams,
-//                                           chunkBubbleOut, logIdentifier);
-//        st_logInfo(" %s Partitioned filtered reads in %d sec.\n", logIdentifier, time(NULL) - filteredPhasingStart);
-//
-//
-//        // Output
-//        outputChunkers_processChunkSequencePhased(outputChunkers, threadIdx, chunkIdx, bamChunk->refSeqName,
-//                                                  poa_hap1, poa_hap2, reads,
-//                                                  readsBelongingToHap1, readsBelongingToHap2, gf, params);
-//
-//        // Cleanup
-//        if (chunkVcfEntries != NULL) stList_destruct(chunkVcfEntries);
-//        stSet_destruct(readsBelongingToHap1);
-//        stSet_destruct(readsBelongingToHap2);
-//        bubbleGraph_destruct(bg);
-//        stGenomeFragment_destruct(gf);
-//        stReference_destruct(ref);
-//        stHash_destruct(readsToPSeqs);
-//        free(reference_rleToNonRleCoordMap);
-//
-//
-//        // report timing
-//        if (st_getLogLevel() >= info) {
-//            st_logInfo(">%s Chunk with %"PRId64" reads processed in %d sec\n",
-//                       logIdentifier, stList_length(reads), (int) (time(NULL) - chunkStartTime));
-//        }
+        time_t primaryPhasingStart = time(NULL);
+
+        // iteratively find bubbles
+        int64_t bubbleFindingIteration = 0;
+        BubbleGraph *bg = NULL;
+        stHash *readsToPSeqs = NULL;
+        stSet *readsBelongingToHap1 = NULL, *readsBelongingToHap2 = NULL;
+        stGenomeFragment *gf = NULL;
+        stReference *ref = NULL;
+        stList *vcfEntriesToBubbles = NULL;
+
+        // Get the bubble graph representation
+        bg =  bubbleGraph_constructFromVCFAndBamChunkReadVcfEntrySubstrings(reads, chunkVcfEntries, params,
+                &vcfEntriesToBubbles);
+
+        // Now make a POA for each of the haplotypes
+        ref = bubbleGraph_getReference(bg, bamChunk->refSeqName, params);
+        gf = bubbleGraph_phaseBubbleGraph(bg, ref, reads, params, &readsToPSeqs);
+
+        stGenomeFragment_phaseBamChunkReads(gf, readsToPSeqs, reads, &readsBelongingToHap1, &readsBelongingToHap2,
+                                            params->phaseParams);
+        st_logInfo(" %s After phasing, of %i reads got %i reads partitioned into hap1 and %i reads partitioned "
+                   "into hap2 (%i unphased)\n", logIdentifier, (int) stList_length(reads),
+                   (int) stSet_size(readsBelongingToHap1), (int) stSet_size(readsBelongingToHap2),
+                   (int) (stList_length(reads) - stSet_size(readsBelongingToHap1) -
+                          stSet_size(readsBelongingToHap2)));
+
+
+        st_logInfo(" %s Phased primary reads in %d sec\n", logIdentifier, time(NULL) - primaryPhasingStart);
+
+        // should included filtered reads in output
+        // get reads
+        for (int64_t bcrIdx = 0; bcrIdx < stList_length(reads); bcrIdx++) {
+            BamChunkRead *bcr = stList_get(reads, bcrIdx);
+            if (!stSet_search(readsBelongingToHap1, bcr) && !stSet_search(readsBelongingToHap2, bcr)) {
+                // was filtered in some form
+                stList_append(filteredReads, bamChunkRead_constructCopy(bcr));
+            }
+        }
+        st_logInfo(" %s Assigning %"PRId64" filtered reads to haplotypes\n", logIdentifier, stList_length(filteredReads));
+
+        time_t filteredPhasingStart = time(NULL);
+
+        bubbleGraph_partitionFilteredReadsFromVcfEntries(filteredReads, gf, bg, vcfEntriesToBubbles, readsBelongingToHap1,
+                readsBelongingToHap2, params, logIdentifier);
+        st_logInfo(" %s Partitioned filtered reads in %d sec.\n", logIdentifier, time(NULL) - filteredPhasingStart);
+
+
+        // Output
+        outputChunkers_processChunkSequencePhased(outputChunkers, threadIdx, chunkIdx, bamChunk->refSeqName,
+                                                  NULL, NULL, reads, readsBelongingToHap1, readsBelongingToHap2, gf,
+                                                  params);
 
         // Cleanup
-        rleString_destruct(chunkReferenceRLE);
+        if (chunkVcfEntries != NULL) stList_destruct(chunkVcfEntries);
+        stSet_destruct(readsBelongingToHap1);
+        stSet_destruct(readsBelongingToHap2);
+        bubbleGraph_destruct(bg);
+        stGenomeFragment_destruct(gf);
+        stReference_destruct(ref);
+        stHash_destruct(readsToPSeqs);
+        stList_destruct(vcfEntriesToBubbles);
+        free(chunkReference);
+
+        // report timing
+        if (st_getLogLevel() >= info) {
+            st_logInfo(">%s Chunk with ~%"PRId64" reads processed in %d sec\n",
+                       logIdentifier, stList_length(reads) + stList_length(filteredReads), (int) (time(NULL) - chunkStartTime));
+        }
+
+        // final post-completion logging cleanup
         stList_destruct(reads);
         stList_destruct(filteredReads);
         free(logIdentifier);
     }
 
-//    // for writing haplotyped chunks
-//    stList *allReadIdsHap1 = stList_construct3(0, free);
-//    stList *allReadIdsHap2 = stList_construct3(0, free);
-//
-//    // merge chunks
-//    time_t mergeStartTime = time(NULL);
-//    st_logCritical("> Starting merge\n");
-//    outputChunkers_stitchAndTrackReadIds(outputChunkers, TRUE, bamChunker->chunkCount, allReadIdsHap1, allReadIdsHap2);
-//    time_t mergeEndTime = time(NULL);
-//    char *tds = getTimeDescriptorFromSeconds((int) mergeEndTime - mergeStartTime);
-//    st_logCritical("> Merging took %s\n", tds);
-//    outputChunkers_destruct(outputChunkers);
-//    free(tds);
-//    tds = getTimeDescriptorFromSeconds((int) time(NULL) - mergeEndTime);
-//    st_logCritical("> Merge cleanup took %s\n", tds);
-//    free(tds);
-//
-//    // maybe write final haplotyped bams
-//    time_t hapBamStart = time(NULL);
-//    st_logInfo("> Writing final haplotyped BAMs\n");
-//
-//    stSet *allReadIdsForHaplotypingHap1 = stSet_construct3(stHash_stringKey, stHash_stringEqualKey, NULL);
-//    stSet *allReadIdsForHaplotypingHap2 = stSet_construct3(stHash_stringKey, stHash_stringEqualKey, NULL);
-//
-//    for(int64_t i = 0; i < stList_length(allReadIdsHap1); i++) {
-//        stSet_insert(allReadIdsForHaplotypingHap1, stList_get(allReadIdsHap1, i));
-//    }
-//    for(int64_t i = 0; i < stList_length(allReadIdsHap2); i++) {
-//        stSet_insert(allReadIdsForHaplotypingHap2, stList_get(allReadIdsHap2, i));
-//    }
-//
-//    // write it
-//    BamChunk *whbBamChunk = NULL;
-//    if (regionStr != NULL) {
-//        char regionContig[128] = "";
-//        int regionStart = 0;
-//        int regionEnd = 0;
-//        int scanRet = sscanf(regionStr, "%[^:]:%d-%d", regionContig, &regionStart, &regionEnd);
-//        if (scanRet != 3) {
-//            regionEnd = (int) strlen(stHash_search(referenceSequences, regionContig));
-//        }
-//        whbBamChunk = bamChunk_construct2(regionContig, -1, regionStart, regionStart, regionEnd,
-//                regionEnd, 0, bamChunker);
-//    }
-//    writeHaplotaggedBam(whbBamChunk, bamChunker->bamFile, outputBase,
-//                        allReadIdsForHaplotypingHap1, allReadIdsForHaplotypingHap2, params, "");
-//    if (whbBamChunk != NULL) {
-//        bamChunk_destruct(whbBamChunk);
-//    }
-//
-//    char *hapBamTDS = getTimeDescriptorFromSeconds(time(NULL) - hapBamStart);
-//    st_logCritical("> Wrote haplotyped bams in %s\n", hapBamTDS);
-//
-//    // cleanup
-//    stSet_destruct(allReadIdsForHaplotypingHap1);
-//    stSet_destruct(allReadIdsForHaplotypingHap2);
-//    free(hapBamTDS);
-//
-//    bamChunker_destruct(bamChunker);
-//    stHash_destruct(referenceSequences);
-//    params_destruct(params);
-//    if (regionStr != NULL) free(regionStr);
-//    stList_destruct(chunkOrder);
-//    if (vcfFile != NULL) {
-//        free(vcfFile);
-//        stList_destruct(vcfEntries);
-//    }
-//    if (allReadIdsHap1 != NULL) stList_destruct(allReadIdsHap1);
-//    if (allReadIdsHap2 != NULL) stList_destruct(allReadIdsHap2);
-//    free(outputBase);
-//    free(bamInFile);
-//    free(referenceFastaFile);
-//    free(paramsFile);
-//
-//    // log completion
-//    char *timeDescriptor = getTimeDescriptorFromSeconds(time(NULL) - startTime);
-//    st_logCritical("> Finished polishing in %s.\n", timeDescriptor);
-//    free(timeDescriptor);
+    // for writing haplotyped chunks
+    stList *allReadIdsHap1 = stList_construct3(0, free);
+    stList *allReadIdsHap2 = stList_construct3(0, free);
+
+    // merge chunks
+    time_t mergeStartTime = time(NULL);
+    st_logCritical("> Starting merge\n");
+    outputChunkers_stitchAndTrackReadIds(outputChunkers, TRUE, bamChunker->chunkCount, allReadIdsHap1, allReadIdsHap2);
+    time_t mergeEndTime = time(NULL);
+    char *tds = getTimeDescriptorFromSeconds((int) mergeEndTime - mergeStartTime);
+    st_logCritical("> Merging took %s\n", tds);
+    outputChunkers_destruct(outputChunkers);
+    free(tds);
+    tds = getTimeDescriptorFromSeconds((int) time(NULL) - mergeEndTime);
+    st_logCritical("> Merge cleanup took %s\n", tds);
+    free(tds);
+
+    // maybe write final haplotyped bams
+    time_t hapBamStart = time(NULL);
+    st_logInfo("> Writing final haplotyped BAMs\n");
+
+    stSet *allReadIdsForHaplotypingHap1 = stSet_construct3(stHash_stringKey, stHash_stringEqualKey, NULL);
+    stSet *allReadIdsForHaplotypingHap2 = stSet_construct3(stHash_stringKey, stHash_stringEqualKey, NULL);
+
+    for(int64_t i = 0; i < stList_length(allReadIdsHap1); i++) {
+        stSet_insert(allReadIdsForHaplotypingHap1, stList_get(allReadIdsHap1, i));
+    }
+    for(int64_t i = 0; i < stList_length(allReadIdsHap2); i++) {
+        stSet_insert(allReadIdsForHaplotypingHap2, stList_get(allReadIdsHap2, i));
+    }
+
+    // write it
+    BamChunk *whbBamChunk = NULL;
+    if (regionStr != NULL) {
+        char regionContig[128] = "";
+        int regionStart = 0;
+        int regionEnd = 0;
+        int scanRet = sscanf(regionStr, "%[^:]:%d-%d", regionContig, &regionStart, &regionEnd);
+        if (scanRet != 3) {
+            regionEnd = (int)((BamChunk*)stList_get(bamChunker->chunks, bamChunker->chunkCount -1))->chunkOverlapEnd;
+        }
+        whbBamChunk = bamChunk_construct2(regionContig, -1, regionStart, regionStart, regionEnd,
+                regionEnd, 0, bamChunker);
+    }
+    writeHaplotaggedBam(whbBamChunk, bamChunker->bamFile, outputBase,
+                        allReadIdsForHaplotypingHap1, allReadIdsForHaplotypingHap2, params, "");
+    if (whbBamChunk != NULL) {
+        bamChunk_destruct(whbBamChunk);
+    }
+
+    char *hapBamTDS = getTimeDescriptorFromSeconds(time(NULL) - hapBamStart);
+    st_logCritical("> Wrote haplotyped bams in %s\n", hapBamTDS);
+
+    // cleanup
+    stSet_destruct(allReadIdsForHaplotypingHap1);
+    stSet_destruct(allReadIdsForHaplotypingHap2);
+    free(hapBamTDS);
+
+    bamChunker_destruct(bamChunker);
+    params_destruct(params);
+    if (regionStr != NULL) free(regionStr);
+    stList_destruct(chunkOrder);
+    free(vcfFile);
+    stHash_destruct(vcfEntries);
+    if (allReadIdsHap1 != NULL) stList_destruct(allReadIdsHap1);
+    if (allReadIdsHap2 != NULL) stList_destruct(allReadIdsHap2);
+    free(outputBase);
+    free(bamInFile);
+    free(referenceFastaFile);
+    free(paramsFile);
+
+    // log completion
+    char *timeDescriptor = getTimeDescriptorFromSeconds(time(NULL) - startTime);
+    st_logCritical("> Finished phasing in %s.\n", timeDescriptor);
+    free(timeDescriptor);
 
 //    while(1); // Use this for testing for memory leaks
 

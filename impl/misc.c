@@ -88,12 +88,6 @@ RleString *bamChunk_getReferenceSubstring(BamChunk *bamChunk, char *referenceFil
      */
     char *referenceString = getSequenceFromReference(referenceFile, bamChunk->refSeqName, bamChunk->chunkOverlapStart,
                                                      bamChunk->chunkOverlapEnd);
-    int64_t subRefLen = strlen(referenceString);
-    // TODO: Decide where the proper place to do this is
-    for (int64_t i = 0; i < subRefLen; i++) {
-        referenceString[i] = (char) toupper(referenceString[i]);
-    }
-
     RleString *rleRef = params->polishParams->useRunLengthEncoding ?
                         rleString_construct(referenceString) : rleString_construct_no_rle(referenceString);
 

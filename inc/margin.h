@@ -1049,42 +1049,37 @@ typedef struct _bamChunk {
     BamChunker *parent;        // reference to parent (may not be needed)
 } BamChunk;
 
+typedef struct _bamChunkSubstrings {
+    stList *readSubstrings;
+    stList *readSubstringQualities;
+    stList *vcfEntries;
+} BamChunkReadVcfEntrySubstrings;
+
 typedef struct _bamChunkRead {
 	char *readName;            // read name
 	RleString *rleRead;        // rle read
 	uint8_t *qualities;            // quality scores. will be NULL if not given, else will be of length rleRead->length
 	bool forwardStrand;            // whether the alignment is matched to the forward strand
 	int64_t fullReadLength;   // total length for whole read (not just chunk portion)
+	BamChunkReadVcfEntrySubstrings *bamChunkReadVcfEntrySubstrings; // for ultra-fast phasing work
 } BamChunkRead;
-
-typedef struct _bamChunkSubstrings {
-    char *readName;            // read name
-    bool forwardStrand;            // whether the alignment is matched to the forward strand
-    int64_t fullReadLength;   // total length for whole read (not just chunk portion)
-    stList *readSubstrings;
-    stList *readSubstringQualities;
-    stList *vcfEntries;
-} BamChunkReadVcfEntrySubstrings;
 
 BamChunkRead *bamChunkRead_construct2(char *readName, char *nucleotides, uint8_t *qualities, bool forwardStrand,
                                       bool useRunLengthEncoding);
-//todo could be merged
 BamChunkRead *bamChunkRead_construct3(char *readName, char *nucleotides, uint8_t *qualities, bool forwardStrand,
-									  int64_t fullReadLength, bool useRunLengthEncoding);
+                                      int64_t fullReadLength, bool useRunLengthEncoding);
+BamChunkRead *bamChunkRead_constructWithVcfEntrySubstrings(char *readName, bool forwardStrand, int64_t fullReadLength,
+        BamChunkReadVcfEntrySubstrings *bcrves);
 
 BamChunkRead *bamChunkRead_constructCopy(BamChunkRead *copy);
 
 void bamChunkRead_destruct(BamChunkRead *bamChunkRead);
 
-
-BamChunkReadVcfEntrySubstrings *bamChunkReadVcfEntrySubstrings_construct(char *readName, bool forwardStrand,
-                                                                         int64_t fullReadLength);
-
-BamChunkReadVcfEntrySubstrings *bamChunkReadVcfEntrySubstrings_construct2(char *readName, bool forwardStrand,
-                                                                          int64_t fullReadLength,
-                                                                          stList *readSubstrings,
-                                                                          stList *readSubstringQualities,
-                                                                          stList *vcfEntries);
+BamChunkReadVcfEntrySubstrings *bamChunkReadVcfEntrySubstrings_construct();
+BamChunkReadVcfEntrySubstrings *bamChunkReadVcfEntrySubstrings_construct2( stList *readSubstrings,
+                                                                           stList *readSubstringQualities,
+                                                                           stList *vcfEntries);
+BamChunkReadVcfEntrySubstrings *bamChunkReadVcfEntrySubstrings_constructCopy(BamChunkReadVcfEntrySubstrings *bcrves);
 
 void bamChunkReadVcfEntrySubstrings_destruct(BamChunkReadVcfEntrySubstrings *bcrs);
 
@@ -1099,9 +1094,10 @@ char *bamChunkRead_rleExpand(BamChunkRead *read);
 
 typedef struct _bamChunkReadSubstring {
 	BamChunkRead *read; // The parent read from which the substring arises from
-	uint64_t start; // The 0 based offset of the start position in the parent read (inclusive)
-	uint64_t length; // The length of the substring
+	int64_t start; // The 0 based offset of the start position in the parent read (inclusive)
+	int64_t length; // The length of the substring
 	double qualValue;
+	RleString *substring; // for the ultra-fast version where we don't use the BamChunkRead to get the substring
 } BamChunkReadSubstring;
 
 /*
@@ -1303,6 +1299,13 @@ BubbleGraph *bubbleGraph_partitionFilteredReads(Poa *poa, stList *bamChunkReads,
                                                 char *logIdentifier);
 
 /*
+ * Phases reads from existing partition based on vcfEntries
+ */
+BubbleGraph *bubbleGraph_partitionFilteredReadsFromVcfEntries(stList *bamChunkReads, stGenomeFragment *gF,
+                                                              BubbleGraph *bg, stList *vcfEntriesToBubbles, stSet *hap1Reads,
+                                                              stSet *hap2Reads, Params *params, char *logIdentifier);
+
+/*
  * For tracking Bubble Graph stuff
  */
 void bubbleGraph_saveBubblePhasingInfo(BamChunk *bamChunk, BubbleGraph *bg, stHash *readsToPSeqs, stGenomeFragment *gF,
@@ -1415,7 +1418,7 @@ int64_t binarySearchVcfListForFirstIndexAfterRefPos(stList *vcfEntries, int64_t 
 stList *getVcfEntriesForRegion(stHash *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos);
 stList *getVcfEntriesForRegion2(stHash *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos, double minQual);
 stList *getAlleleSubstrings2(VcfEntry *entry, char *referenceSeq, int64_t refSeqLen, int64_t *refStartPos,
-        int64_t *refEndPosIncl, bool refPosInPOASpace, int64_t expansion, bool useRunLengthEncoding);
+        int64_t *refEndPosIncl, bool putRefPosInPOASpace, int64_t expansion, bool useRunLengthEncoding);
 stList *getAlleleSubstrings(VcfEntry *entry, RleString *referenceSeq, Params *params,
                             int64_t *refStartPos, int64_t *refEndPosIncl, bool refPosInPOASpace);
 void updateVcfEntriesWithSubstringsAndPositions(stList *vcfEntries, char *referenceSeq, int64_t refSeqLen,
@@ -1424,6 +1427,8 @@ BubbleGraph *bubbleGraph_constructFromPoaAndVCF(Poa *poa, stList *bamChunkReads,
                                                 PolishParams *params, bool phasing);
 BubbleGraph *bubbleGraph_constructFromPoaAndVCFOnlyVCFAllele(Poa *poa, stList *bamChunkReads,
 															 RleString *referenceSeq, stList *vcfEntries, Params *params);
+BubbleGraph *bubbleGraph_constructFromVCFAndBamChunkReadVcfEntrySubstrings(stList *bamChunkReads, stList *vcfEntries,
+                                                                           Params *params, stList **vcfEntriesToBubbleIdx);
 
 /*
  * Misc
@@ -1531,6 +1536,11 @@ bool downsampleViaHetSpanLikelihood(int64_t intendedDepth, BamChunk *bamChunk, s
 bool downsampleViaFullReadLengthLikelihood(int64_t intendedDepth, BamChunk *bamChunk, stList *inputReads,
                                            stList *inputAlignments, stList *maintainedReads, stList *maintainedAlignments,
                                            stList *discardedReads, stList *discardedAlignments);
+bool downsampleBamChunkReadWithVcfEntrySubstringsViaFullReadLengthLikelihood(int64_t intendedDepth,
+                                                                             stList *chunkVcfEntries,
+                                                                             stList *inputReads,
+                                                                             stList *maintainedReads,
+                                                                             stList *discardedReads);
 
 void writeHaplotaggedBam(BamChunk *bamChunk, char *inputBamLocation, char *outputBamFileBase,
                          stSet *readsInH1, stSet *readsInH2, Params *params, char *logIdentifier);

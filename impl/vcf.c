@@ -299,14 +299,14 @@ stList *getVcfEntriesForRegion(stHash *vcfEntryMap, uint64_t *rleMap, char *refS
 
 
 stList *getAlleleSubstrings2(VcfEntry *entry, char *referenceSeq, int64_t refSeqLen, int64_t *refStartPos,
-        int64_t *refEndPosIncl, bool refPosInPOASpace, int64_t expansion, bool useRunLengthEncoding) {
+        int64_t *refEndPosIncl, bool putRefPosInPOASpace, int64_t expansion, bool useRunLengthEncoding) {
     stList *substrings = stList_construct3(0, (void (*)(void*)) rleString_destruct);
     assert(stList_length(entry->alleles) >= 1);
 
     // parameters for substringing
     int64_t pos = entry->refPos;
-    if (refPosInPOASpace)
-        pos--; // at this point, reference positions are in poa-space (1-based), need to convert to ref-space (0-based)
+    // at this point, reference positions are in poa-space (1-based), need to convert to ref-space (0-based)
+    pos--;
 
     //get ref info
     char *refAllele = rleString_expand(stList_get(entry->alleles, 0));
@@ -356,7 +356,7 @@ stList *getAlleleSubstrings2(VcfEntry *entry, char *referenceSeq, int64_t refSeq
     free(suffix);
 
     // put refStartPos and endPos back in poa-space
-    if (refPosInPOASpace) {
+    if (putRefPosInPOASpace) {
         (*refStartPos)++;
         (*refEndPosIncl)++;
     }

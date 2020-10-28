@@ -983,36 +983,36 @@ static void test_readSubstringsFromVcf(CuTest *testCase) {
     params->polishParams->columnAnchorTrim = 4;
     BamChunker *chunker = bamChunker_construct2(INPUT_MVVP_BAM, "contig_1:0-100000", params->polishParams, TRUE);
     stHash *vcfEntries = parseVcf(INPUT_MVVP_VCF, params);
-    stHash *referenceSequences = parseReferenceSequences(INPUT_MVVP_REF);
     CuAssertTrue(testCase, chunker->chunkCount == 1);
 
     BamChunk *bamChunk = stList_get(chunker->chunks, 0);
-    RleString *chunkReferenceRLE = bamChunk_getReferenceSubstring(bamChunk, referenceSequences, params);
+    RleString *chunkReferenceRLE = bamChunk_getReferenceSubstring(bamChunk, INPUT_MVVP_REF, params);
     char *chunkReferenceRAW = rleString_expand(chunkReferenceRLE);
     stList *chunkVcfEntries = getVcfEntriesForRegion(vcfEntries, NULL, bamChunk->refSeqName,
                                                      bamChunk->chunkOverlapStart,  bamChunk->chunkOverlapEnd);
-    updateVcfEntriesWithSubstringsAndPositions(chunkVcfEntries, chunkReferenceRAW, strlen(chunkReferenceRAW), params);
+    updateVcfEntriesWithSubstringsAndPositions(chunkVcfEntries, chunkReferenceRAW, strlen(chunkReferenceRAW), FALSE, params);
 
-    stList *reads = stList_construct3(0, (void (*)(void *)) bamChunkReadVcfEntrySubstrings_destruct);
-    stList *filteredReads = stList_construct3(0, (void (*)(void *)) bamChunkReadVcfEntrySubstrings_destruct);
+    stList *reads = stList_construct3(0, (void (*)(void *)) bamChunkRead_destruct);
+    stList *filteredReads = stList_construct3(0, (void (*)(void *)) bamChunkRead_destruct);
     extractReadSubstringsAtVariantPositions(bamChunk, chunkVcfEntries, reads, filteredReads, params->polishParams);
 
     for (int64_t i = 0; i < stList_length(reads); i++) {
-        BamChunkReadVcfEntrySubstrings *bcrves = stList_get(reads, i);
-        if (stString_eq(bcrves->readName, "read_1_extendsPastVariantBoundaries") || stString_eq(bcrves->readName, "read_1_extendsToVariantBoundaries") ||
-                stString_eq(bcrves->readName, "read_1_extendsPastVariantBoundariesSC") || stString_eq(bcrves->readName, "read_1_extendsToVariantBoundariesSC")) {
+        BamChunkRead *bcr = stList_get(reads, i);
+        BamChunkReadVcfEntrySubstrings *bcrves = bcr->bamChunkReadVcfEntrySubstrings;
+        if (stString_eq(bcr->readName, "read_1_extendsPastVariantBoundaries") || stString_eq(bcr->readName, "read_1_extendsToVariantBoundaries") ||
+                stString_eq(bcr->readName, "read_1_extendsPastVariantBoundariesSC") || stString_eq(bcr->readName, "read_1_extendsToVariantBoundariesSC")) {
             CuAssertTrue(testCase, stList_length(bcrves->readSubstrings) == 2);
             for (int64_t j = 0; j < stList_length(bcrves->readSubstrings); j++) {
                 VcfEntry *vcfEntry = stList_get(bcrves->vcfEntries, j);
                 char *substring = stList_get(bcrves->readSubstrings, j);
                 switch (j) {
                     case 0:
-                        CuAssertTrue(testCase, vcfEntry->refPos == 16);
+                        CuAssertTrue(testCase, vcfEntry->refPos == 17);
                         CuAssertStrEquals(testCase, "AAACCCGGG", substring);
                         CuAssertStrEquals(testCase, substring, rleString_expand(stList_get(vcfEntry->alleleSubstrings, 0)));
                         break;
                     case 1:
-                        CuAssertTrue(testCase, vcfEntry->refPos == 31);
+                        CuAssertTrue(testCase, vcfEntry->refPos == 32);
                         CuAssertStrEquals(testCase, "ACCCCGGGG", substring);
                         CuAssertStrEquals(testCase, substring, rleString_expand(stList_get(vcfEntry->alleleSubstrings, 0)));
                         break;
@@ -1020,60 +1020,58 @@ static void test_readSubstringsFromVcf(CuTest *testCase) {
                         CuAssertTrue(testCase, FALSE);
                 }
             }
-        } else if (stString_eq(bcrves->readName, "read_1_extendsIntoVariantBoundaries") || stString_eq(bcrves->readName, "read_1_extendsIntoVariantBoundariesSC")) {
+        } else if (stString_eq(bcr->readName, "read_1_extendsIntoVariantBoundaries") || stString_eq(bcr->readName, "read_1_extendsIntoVariantBoundariesSC")) {
             CuAssertTrue(testCase, stList_length(bcrves->readSubstrings) == 2);
             for (int64_t j = 0; j < stList_length(bcrves->readSubstrings); j++) {
                 VcfEntry *vcfEntry = stList_get(bcrves->vcfEntries, j);
                 char *substring = stList_get(bcrves->readSubstrings, j);
                 switch (j) {
                     case 0:
-                        CuAssertTrue(testCase, vcfEntry->refPos == 16);
+                        CuAssertTrue(testCase, vcfEntry->refPos == 17);
                         CuAssertStrEquals(testCase, "CCCGGG", substring);
                         break;
                     case 1:
-                        CuAssertTrue(testCase, vcfEntry->refPos == 31);
+                        CuAssertTrue(testCase, vcfEntry->refPos == 32);
                         CuAssertStrEquals(testCase, "ACCCCG", substring);
                         break;
                     default:
                         CuAssertTrue(testCase, FALSE);
                 }
             }
-        } else if (stString_eq(bcrves->readName, "read_1_alignsToVariantPos") || stString_eq(bcrves->readName, "read_1_alignsToVariantPosSC")) {
+        } else if (stString_eq(bcr->readName, "read_1_alignsToVariantPos") || stString_eq(bcr->readName, "read_1_alignsToVariantPosSC")) {
             CuAssertTrue(testCase, stList_length(bcrves->readSubstrings) == 2);
             for (int64_t j = 0; j < stList_length(bcrves->readSubstrings); j++) {
                 VcfEntry *vcfEntry = stList_get(bcrves->vcfEntries, j);
                 char *substring = stList_get(bcrves->readSubstrings, j);
                 switch (j) {
                     case 0:
-                        CuAssertTrue(testCase, vcfEntry->refPos == 16);
+                        CuAssertTrue(testCase, vcfEntry->refPos == 17);
                         CuAssertStrEquals(testCase, "CCGGG", substring);
                         break;
                     case 1:
-                        CuAssertTrue(testCase, vcfEntry->refPos == 31);
+                        CuAssertTrue(testCase, vcfEntry->refPos == 32);
                         CuAssertStrEquals(testCase, "ACCCC", substring);
                         break;
                     default:
                         CuAssertTrue(testCase, FALSE);
                 }
             }
-        } else if (stString_eq(bcrves->readName, "read_1_onlySpanVariantBoundaries") || stString_eq(bcrves->readName, "read_1_onlySpanVariantBoundariesSC")) {
+        } else if (stString_eq(bcr->readName, "read_1_onlySpanVariantBoundaries") || stString_eq(bcr->readName, "read_1_onlySpanVariantBoundariesSC")) {
             CuAssertTrue(testCase, stList_length(bcrves->readSubstrings) == 0);
         }
 
 
-        else if (stString_eq(bcrves->readName, "read_2_extendsPastVariantBoundaries") || stString_eq(bcrves->readName, "read_2_extendsToVariantBoundaries")) {
+        else if (stString_eq(bcr->readName, "read_2_extendsPastVariantBoundaries") || stString_eq(bcr->readName, "read_2_extendsToVariantBoundaries")) {
             CuAssertTrue(testCase, stList_length(bcrves->readSubstrings) == 2);
             for (int64_t j = 0; j < stList_length(bcrves->readSubstrings); j++) {
                 VcfEntry *vcfEntry = stList_get(bcrves->vcfEntries, j);
                 char *substring = stList_get(bcrves->readSubstrings, j);
                 switch (vcfEntry->refPos) {
-                    case 48:
-                        CuAssertTrue(testCase, vcfEntry->refPos == 48);
+                    case 49:
                         CuAssertStrEquals(testCase, "ACCCCCGGG", substring);
                         CuAssertStrEquals(testCase, substring, rleString_expand(stList_get(vcfEntry->alleleSubstrings, 0)));
                         break;
-                    case 50:
-                        CuAssertTrue(testCase, vcfEntry->refPos == 50);
+                    case 51:
                         CuAssertStrEquals(testCase, "CCCCGGGGG", substring);
                         CuAssertStrEquals(testCase, substring, rleString_expand(stList_get(vcfEntry->alleleSubstrings, 0)));
                         break;
@@ -1081,59 +1079,55 @@ static void test_readSubstringsFromVcf(CuTest *testCase) {
                         CuAssertTrue(testCase, FALSE);
                 }
             }
-        } else if (stString_eq(bcrves->readName, "read_2_extendsIntoVariantBoundaries")) {
+        } else if (stString_eq(bcr->readName, "read_2_extendsIntoVariantBoundaries")) {
             CuAssertTrue(testCase, stList_length(bcrves->readSubstrings) == 2);
             for (int64_t j = 0; j < stList_length(bcrves->readSubstrings); j++) {
                 VcfEntry *vcfEntry = stList_get(bcrves->vcfEntries, j);
                 char *substring = stList_get(bcrves->readSubstrings, j);
                 switch (vcfEntry->refPos) {
-                    case 48:
-                        CuAssertTrue(testCase, vcfEntry->refPos == 48);
+                    case 49:
                         CuAssertStrEquals(testCase, "CCCCCGGG", substring);
                         break;
-                    case 50:
-                        CuAssertTrue(testCase, vcfEntry->refPos == 50);
+                    case 51:
                         CuAssertStrEquals(testCase, "CCCCGGGG", substring);
                         break;
                     default:
                         CuAssertTrue(testCase, FALSE);
                 }
             }
-        } else if (stString_eq(bcrves->readName, "read_2_extendsIntoVariantBoundaries")) {
+        } else if (stString_eq(bcr->readName, "read_2_extendsIntoVariantBoundaries")) {
             CuAssertTrue(testCase, stList_length(bcrves->readSubstrings) == 2);
             for (int64_t j = 0; j < stList_length(bcrves->readSubstrings); j++) {
                 VcfEntry *vcfEntry = stList_get(bcrves->vcfEntries, j);
                 char *substring = stList_get(bcrves->readSubstrings, j);
                 switch (vcfEntry->refPos) {
-                    case 48:
-                        CuAssertTrue(testCase, vcfEntry->refPos == 48);
+                    case 49:
                         CuAssertStrEquals(testCase, "CCCCCGGG", substring);
                         break;
-                    case 50:
-                        CuAssertTrue(testCase, vcfEntry->refPos == 50);
+                    case 51:
                         CuAssertStrEquals(testCase, "CCCCGGGG", substring);
                         break;
                     default:
                         CuAssertTrue(testCase, FALSE);
                 }
             }
-        } else if (stString_eq(bcrves->readName, "read_2_alignsToVariantPos")) {
+        } else if (stString_eq(bcr->readName, "read_2_alignsToVariantPos")) {
             CuAssertTrue(testCase, stList_length(bcrves->readSubstrings) == 2);
             for (int64_t j = 0; j < stList_length(bcrves->readSubstrings); j++) {
                 VcfEntry *vcfEntry = stList_get(bcrves->vcfEntries, j);
                 char *substring = stList_get(bcrves->readSubstrings, j);
                 switch (vcfEntry->refPos) {
-                    case 48:
+                    case 49:
                         CuAssertStrEquals(testCase, "CCG", substring);
                         break;
-                    case 50:
+                    case 51:
                         CuAssertStrEquals(testCase, "CCG", substring);
                         break;
                     default:
                         CuAssertTrue(testCase, FALSE);
                 }
             }
-        } else if (stString_eq(bcrves->readName, "read_2_onlySpanVariantBoundaries")) {
+        } else if (stString_eq(bcr->readName, "read_2_onlySpanVariantBoundaries")) {
             CuAssertTrue(testCase, stList_length(bcrves->readSubstrings) == 0);
         } else {
 
