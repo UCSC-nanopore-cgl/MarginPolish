@@ -1120,7 +1120,7 @@ bool downsampleBamChunkReadWithVcfEntrySubstringsViaFullReadLengthLikelihood(int
         readFullLengths[i] = (int) bcr->fullReadLength;
     }
     int64_t chunkSize = stList_length(chunkVcfEntries);
-    double averageDepth = 1.0 * totalVcfEntries / (chunkSize);
+    double averageDepth = 1.0 * totalVcfEntries / chunkSize;
 
     // do we need to downsample?
     if (averageDepth < intendedDepth) {
@@ -1128,11 +1128,26 @@ bool downsampleBamChunkReadWithVcfEntrySubstringsViaFullReadLengthLikelihood(int
         free(readFullLengths);
         return FALSE;
     }
+    char *logIdentifier = getLogIdentifier();
+
+    // is there something wrong with this chunk?
+    if (chunkSize == 0 || totalVcfEntries == 0) {
+        st_logInfo(" %s Downsampling all reads in chunk with %"PRId64" reads (%"PRId64" incoming filtered), as it has %"PRId64" spanned variants (chunk has %"PRId64")\n",
+                   logIdentifier, stList_length(inputReads), stList_length(discardedReads), totalVcfEntries, chunkSize);
+
+        // "filter" everything and return
+        for (int64_t i = 0; i < stList_length(inputReads); i++) {
+            stList_append(discardedReads, stList_get(inputReads, i));
+        }
+        free(readLengths);
+        free(readFullLengths);
+        free(logIdentifier);
+        return TRUE;
+    }
 
     // we do need to downsample
-    char *logIdentifier = getLogIdentifier();
-    st_logInfo(" %s Downsampling chunk via spanned variant count with average depth %.2fx to %dx.\n",
-               logIdentifier, averageDepth, intendedDepth);
+    st_logInfo(" %s Downsampling chunk with %"PRId64" reads via spanned variant count with average depth %.2fx to %dx.\n",
+               logIdentifier, stList_length(inputReads), averageDepth, intendedDepth);
 
     // get likelihood of keeping each read
     double *probs = computeReadProbsByLengthAndSecondMetric(readLengths, readFullLengths,
@@ -1567,10 +1582,6 @@ uint32_t extractReadSubstringsAtVariantPositions(BamChunk *bamChunk, stList *vcf
         uint8_t *qualBits = bam_get_qual(aln);
         bool forwardStrand = !bam_is_rev(aln);
 
-        if (stString_eq("read_1_onlySpanVariantBoundaries", readName)) {
-            fprintf(stderr, "");
-        }
-
         // for vcf tracking at local level
         // +1 because vcf->refPos is in 1-based space, and this reference position is in 0-based
         int64_t nextVcfEntriesIndex = binarySearchVcfListForFirstIndexAfterRefPos(vcfEntries, alnStartPos - chunkOverlapStart + 1);
@@ -1607,10 +1618,6 @@ uint32_t extractReadSubstringsAtVariantPositions(BamChunk *bamChunk, stList *vcf
         } else {
             // alignment starts after chunkStart
             firstNonSoftclipAlignedReadIdxInChunk = 0;
-        }
-
-        if (stString_eq("read_1_onlySpanVariantBoundaries", readName)) {
-            fprintf(stderr, "");
         }
 
         // start with any vcf entries that may coincide with the beginning of the read
