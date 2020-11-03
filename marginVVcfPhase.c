@@ -44,16 +44,6 @@ void usage() {
     fprintf(stderr, "    -p --depth               : Will override the downsampling depth set in PARAMS\n");
     fprintf(stderr, "    -k --tempFilesToDisk     : Write temporary files to disk (for --diploid or supplementary output)\n");
 
-    fprintf(stderr, "\nMiscellaneous supplementary output options:\n");
-    fprintf(stderr, "    -c --supplementaryChunks : Write supplementary files for each chunk (in additon to writing\n");
-    fprintf(stderr, "                               whole genome information)\n");
-    fprintf(stderr, "    -d --outputPoaDot        : Write out the poa as DOT file (only done per chunk)\n");
-    fprintf(stderr, "    -i --outputRepeatCounts  : Write out the repeat counts as CSV file\n");
-    fprintf(stderr, "    -j --outputPoaCsv        : Write out the poa as CSV file\n");
-    fprintf(stderr, "    -n --outputHaplotypeReads: Write out phased reads and likelihoods as CSV file (--diploid only)\n");
-    fprintf(stderr, "    -s --outputPhasingState  : Write out phasing likelihoods as JSON file (--diploid only)\n");
-    fprintf(stderr, "    -M --skipHaplotypeBAM    : Do not write out phased BAMs (--diploid only, default is to write)\n");
-    fprintf(stderr, "    -T --skipOutputFasta     : Do not write out phased fasta (--diploid only, default is to write)\n");
     fprintf(stderr, "\n");
 }
 
@@ -71,11 +61,6 @@ int main(int argc, char *argv[]) {
     int numThreads = 1;
     int64_t maxDepth = -1;
     bool inMemory = TRUE;
-    bool skipRealignment = FALSE;
-
-    // what to output
-    bool partitionFilteredReads = TRUE;
-    bool outputPhasingState = FALSE;
 
     if (argc < 4) {
         free(outputBase);
@@ -101,13 +86,10 @@ int main(int argc, char *argv[]) {
                 { "region", required_argument, 0, 'r'},
                 { "depth", required_argument, 0, 'p'},
                 { "tempFilesToDisk", no_argument, 0, 'k'},
-                { "skipFilteredReads", no_argument, 0, 'S'},
-                { "outputPhasingState", no_argument, 0, 't'},
-                { "skipRealignment", no_argument, 0, 'R'},
                 { 0, 0, 0, 0 } };
 
         int option_index = 0;
-        int key = getopt_long(argc-2, &argv[2], "ha:o:p:t:r:T", long_options, &option_index);
+        int key = getopt_long(argc-2, &argv[2], "ha:o:p:t:r:k", long_options, &option_index);
 
         if (key == -1) {
             break;
@@ -142,15 +124,6 @@ int main(int argc, char *argv[]) {
             break;
         case 'k':
             inMemory = FALSE;
-            break;
-        case 's':
-            outputPhasingState = TRUE;
-            break;
-        case 'S':
-            partitionFilteredReads = FALSE;
-            break;
-        case 'R':
-            skipRealignment = TRUE;
             break;
         default:
             usage();
@@ -221,7 +194,7 @@ int main(int argc, char *argv[]) {
 
     // get chunker for bam.  if regionStr is NULL, it will be ignored
     time_t chunkingStart = time(NULL);
-    BamChunker *bamChunker = bamChunker_construct2(bamInFile, regionStr, params->polishParams, partitionFilteredReads);
+    BamChunker *bamChunker = bamChunker_construct2(bamInFile, regionStr, params->polishParams, TRUE);
     st_logCritical(
             "> Set up bam chunker in %"PRId64"s with chunk size %i and overlap %i (for region=%s), resulting in %i total chunks\n",
             time(NULL) - chunkingStart, (int) bamChunker->chunkSize, (int) bamChunker->chunkBoundary,

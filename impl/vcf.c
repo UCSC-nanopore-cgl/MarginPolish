@@ -16,12 +16,17 @@ VcfEntry *vcfEntry_construct(char *refSeqName, int64_t refPos, int64_t rawRefPos
     vcfEntry->refPos = refPos;
     vcfEntry->rawRefPosInformativeOnly = rawRefPos;
     vcfEntry->phredQuality = phredQuality;
-    vcfEntry->alleles = alleles == NULL ? stList_construct3(0, (void (*)(void*))rleString_destruct) : alleles;
+    vcfEntry->alleles = alleles == NULL ? stList_construct3(0, (void(*)(void*))rleString_destruct) : alleles;
     vcfEntry->gt1 = gt1;
     vcfEntry->gt2 = gt2;
     vcfEntry->alleleSubstrings = NULL;
     vcfEntry->refAlnStart = -1;
     vcfEntry->refAlnStopIncl = -1;
+    vcfEntry->alleleIdxToReads = stList_construct3(0, (void(*)(void*))stList_destruct);
+    for (int i = 0; i < stList_length(vcfEntry->alleles); i++) {
+        stList_append(vcfEntry->alleleIdxToReads, stList_construct());
+    }
+    vcfEntry->rootVcfEntry = NULL;
     return vcfEntry;
 }
 
@@ -281,6 +286,7 @@ stList *getVcfEntriesForRegion2(stHash *vcfEntryMap, uint64_t *rleMap, char *ref
         }
         VcfEntry *copy = vcfEntry_construct(e->refSeqName, refPos, e->rawRefPosInformativeOnly, e->phredQuality,
                 copyListOfRleStrings(e->alleles), e->gt1, e->gt2);
+        copy->rootVcfEntry = e;
         stList_append(regionEntries, copy);
     }
     if (minQual != DEFAULT_MIN_VCF_QUAL) {
@@ -385,3 +391,183 @@ void updateVcfEntriesWithSubstringsAndPositions(stList *vcfEntries, char *refere
 
     }
 }
+
+//TODO 
+/*BubbleGraph *updateOriginalVcfEntriesWithBubbleData(BamChunk *bamChunk, stList *bamChunkReads, stHash *readIdToIdx,
+        stGenomeFragment *gF, BubbleGraph *bg, stList *chunkVcfEntriesToBubbles, stSet *hap1Reads, stSet *hap2Reads,
+        Params *params, char *logIdentifier) {
+
+    // prep
+    stHash *vcfEntryToReadSubstrings = buildVcfEntryToReadSubstringsMap(bamChunkReads, params);
+
+    // loop over all primary bubbles
+    for (uint64_t primaryBubbleIdx = 0; primaryBubbleIdx < gF->length; primaryBubbleIdx++) {
+
+        // bubble and hap info
+        Bubble *primaryBubble = &bg->bubbles[gF->refStart + primaryBubbleIdx];
+        int64_t hap1AlleleNo = gF->haplotypeString1[primaryBubbleIdx];
+        int64_t hap2AlleleNo = gF->haplotypeString2[primaryBubbleIdx];
+
+        VcfEntry *chunkVcfEntry = stList_get(chunkVcfEntriesToBubbles, primaryBubbleIdx);
+        VcfEntry *rootVcfEntry = chunkVcfEntry->rootVcfEntry;
+        assert(rootVcfEntry != NULL);
+
+        char *hap1 = rleString_expand(primaryBubble->alleles[hap1AlleleNo]);
+        char *hap2 = rleString_expand(primaryBubble->alleles[hap2AlleleNo]);
+
+        // anchor positions
+        uint64_t refStart = primaryBubble->refStart;
+
+        // make allele list from primary haplotype alleles
+        stList *alleles = stList_construct3(0, free);
+        stList_append(alleles, rleString_expand(hap1));
+        stList_append(alleles, rleString_expand(hap2));
+
+        // get read substrings
+        stList *readSubstrings = stHash_search(vcfEntryToReadSubstrings, vcfEntry);
+
+        // nothing to phase with
+        if(stList_length(readSubstrings) == 0) {
+            stList_destruct(readSubstrings);
+            continue;
+        }
+
+        Bubble *b = st_malloc(sizeof(Bubble)); // Make a bubble and add to list of bubbles
+        b->variantPositionOffsets = NULL;
+
+        // Set the coordinates
+        b->refStart = (uint64_t) refStart;
+
+        // The reference allele
+        b->refAllele = params->polishParams->useRunLengthEncoding ?
+                       rleString_construct(stList_get(vcfEntry->alleles, 0)) :
+                       rleString_construct_no_rle(stList_get(vcfEntry->alleles, 0));
+
+        // Add read substrings
+        b->readNo = (uint64_t) stList_length(readSubstrings);
+        b->reads = st_malloc(sizeof(BamChunkReadSubstring *) * b->readNo);
+        for (int64_t j = 0; j < b->readNo; j++) {
+            b->reads[j] = stList_pop(readSubstrings);
+        }
+
+        // Now copy the alleles list to the bubble's array of alleles
+        b->alleleNo = (uint64_t) stList_length(alleles);
+        b->alleles = st_malloc(sizeof(RleString *) * b->alleleNo);
+        for (int64_t j = 0; j < b->alleleNo; j++) {
+            b->alleles[j] = params->polishParams->useRunLengthEncoding ?
+                            rleString_construct(stList_get(alleles, j)) : rleString_construct_no_rle(stList_get(alleles, j));
+        }
+
+        // Get allele supports
+        b->alleleReadSupports = st_calloc(b->readNo * b->alleleNo, sizeof(float));
+
+        stList *anchorPairs = stList_construct(); // Currently empty
+
+        SymbolString alleleSymbolStrings[b->alleleNo];
+        for (int64_t j = 0; j < b->alleleNo; j++) {
+            alleleSymbolStrings[j] = rleString_constructSymbolString(b->alleles[j], 0,
+                                                                     b->alleles[j]->length,
+                                                                     params->polishParams->alphabet,
+                                                                     params->polishParams->useRepeatCountsInAlignment,
+                                                                     maximumRepeatLengthExcl);
+        }
+
+        // get alignment likelihoods
+        stHash *cachedScores = stHash_construct3(rleString_stringKey, rleString_expandedStringEqualKey,
+                                                 (void (*)(void *)) rleString_destruct, free);
+        for (int64_t k = 0; k < b->readNo; k++) {
+            RleString *readSubstring = bamChunkReadSubstring_getRleString(b->reads[k]);
+            SymbolString rS = rleString_constructSymbolString(readSubstring, 0, readSubstring->length,
+                                                              params->polishParams->alphabet,
+                                                              params->polishParams->useRepeatCountsInAlignment,
+                                                              maximumRepeatLengthExcl);
+            StateMachine *sM = b->reads[k]->read->forwardStrand
+                               ? params->polishParams->stateMachineForForwardStrandRead
+                               : params->polishParams->stateMachineForReverseStrandRead;
+
+            uint64_t *index = stHash_search(cachedScores, readSubstring);
+            if (index != NULL) {
+                for (int64_t j = 0; j < b->alleleNo; j++) {
+                    b->alleleReadSupports[j * b->readNo + k] = b->alleleReadSupports[j * b->readNo +
+                                                                                     *index];
+                }
+                rleString_destruct(readSubstring);
+            } else {
+                index = st_malloc(sizeof(uint64_t));
+                *index = (uint64_t) k;
+                stHash_insert(cachedScores, readSubstring, index);
+                for (int64_t j = 0; j < b->alleleNo; j++) {
+                    b->alleleReadSupports[j * b->readNo + k] =
+                            (float) computeForwardProbability(alleleSymbolStrings[j], rS, anchorPairs,
+                                                              params->polishParams->p, sM, 0, 0);
+                }
+            }
+
+            symbolString_destruct(rS);
+        }
+
+        // rank reads for each bubble
+        for (int64_t k = 0; k < b->readNo; k++) {
+            BamChunkReadSubstring *bcrss = b->reads[k];
+            BamChunkRead *bcr = bcrss->read;
+            float supportHap1 = b->alleleReadSupports[0 * b->readNo + k];
+            float supportHap2 = b->alleleReadSupports[1 * b->readNo + k];
+
+            double *currRS = stHash_search(totalReadScore_hap1, bcr);
+            *currRS += supportHap1 - stMath_logAddExact(supportHap1, supportHap2);
+            currRS = stHash_search(totalReadScore_hap2, bcr);
+            *currRS += supportHap2 - stMath_logAddExact(supportHap2, supportHap1);
+
+        }
+
+        // cleanup
+        stHash_destruct(cachedScores);
+        for (int64_t j = 0; j < b->alleleNo; j++) {
+            symbolString_destruct(alleleSymbolStrings[j]);
+        }
+        stList_destruct(anchorPairs);
+        stList_destruct(alleles);
+        bubble_destruct(*b);
+        free(b);
+    }
+
+    // get scores and save to appropriate sets
+    double totalNoScoreVariantsSpanned = 0.0;
+    int64_t noScoreCount = 0;
+    int64_t unclassifiedCount = 0;
+    int64_t hap1Count = 0;
+    int64_t hap2Count = 0;
+    for (int i = 0; i < stList_length(bamChunkReads); i++) {
+        BamChunkRead *bcr = stList_get(bamChunkReads, i);
+        double *totalSupportH1 = stHash_search(totalReadScore_hap1, bcr);
+        double *totalSupportH2 = stHash_search(totalReadScore_hap2, bcr);
+
+        if (*totalSupportH1 > *totalSupportH2) {
+            stSet_insert(hap1Reads, bcr);
+            hap1Count++;
+        } else if (*totalSupportH2 > *totalSupportH1)  {
+            stSet_insert(hap2Reads, bcr);
+            hap2Count++;
+        } else {
+            if (*totalSupportH1 == 0) {
+                totalNoScoreVariantsSpanned += stList_length(bcr->bamChunkReadVcfEntrySubstrings->vcfEntries);
+                noScoreCount++;
+            }
+            unclassifiedCount++;
+        }
+    }
+
+    // loggit
+    int64_t length = stList_length(bamChunkReads);
+    st_logInfo(" %s Of %"PRId64" filtered reads: %"PRId64" (%.2f) were hap1, %"PRId64" (%.2f) were hap2, %"PRId64" (%.2f) were unclassified with %"PRId64" (%.2f) having no score (avg spanned variants %.2f).\n",
+               logIdentifier, length, hap1Count, 1.0*hap1Count/length, hap2Count, 1.0*hap2Count/length,
+               unclassifiedCount, 1.0*unclassifiedCount/length, noScoreCount,
+               1.0*noScoreCount/(unclassifiedCount == 0 ? 1 : unclassifiedCount),
+               totalNoScoreVariantsSpanned / (noScoreCount == 0 ? 1 : noScoreCount));
+
+
+    // other cleanup
+    stHash_destruct(totalReadScore_hap1);
+    stHash_destruct(totalReadScore_hap2);
+    stHash_destruct(vcfEntryToReadSubstrings);
+}*/

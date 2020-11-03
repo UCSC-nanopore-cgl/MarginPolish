@@ -1035,6 +1035,7 @@ typedef struct _bamChunker {
 	// internal data
 	stList *chunks;
 	uint64_t chunkCount;
+	stHash *readEnumerator;
 } BamChunker;
 
 typedef struct _bamChunk {
@@ -1405,6 +1406,8 @@ struct _vcfEntry {
     stList *alleleSubstrings;
     int64_t refAlnStart;
     int64_t refAlnStopIncl;
+    VcfEntry *rootVcfEntry;
+    stList *alleleIdxToReads;
 };
 
 VcfEntry *vcfEntry_construct(char *refSeqName, int64_t refPos, int64_t rawRefPos, double phredQuality,

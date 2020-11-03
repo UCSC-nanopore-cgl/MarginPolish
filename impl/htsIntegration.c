@@ -232,6 +232,8 @@ BamChunker *bamChunker_construct2(char *bamFile, char *regionStr, PolishParams *
     chunker->params = params;
     chunker->chunks = stList_construct3(0, (void *) bamChunk_destruct);
     chunker->chunkCount = 0;
+    chunker->readEnumerator = stHash_construct3(stHash_stringKey, stHash_stringEqualKey, free, NULL);
+    int64_t readIdx = 1;
 
     // file initialization
     samFile *in = NULL;
@@ -310,10 +312,8 @@ BamChunker *bamChunker_construct2(char *bamFile, char *regionStr, PolishParams *
         int64_t start_softclip = 0;
         int64_t end_softclip = 0;
         int64_t alnReadLength = getAlignedReadLength3(aln, &start_softclip, &end_softclip, FALSE);
-        int64_t alnStartPos = aln->core.pos;
-        int64_t alnEndPos = alnStartPos + alnReadLength;
 
-        // does this belong in our chunk?
+        // should never happen
         if (alnReadLength <= 0) continue;
 
         // get start and stop position
@@ -347,6 +347,14 @@ BamChunker *bamChunker_construct2(char *bamFile, char *regionStr, PolishParams *
             contigEndPos = readEndPos;
             stList_destruct(estimatedChunkDepths);
             estimatedChunkDepths = stList_construct();
+        }
+        
+        // save to readEnumerator
+        char *readName = stString_copy(bam_get_qname(aln));
+        if (stHash_search(chunker->readEnumerator, readName) == NULL) {
+            stHash_insert(chunker->readEnumerator, readName, (void*) readIdx++);
+        } else {
+            free(readName);
         }
     }
     // save last contig's chunks
@@ -456,6 +464,7 @@ BamChunker *bamChunker_copyConstruct(BamChunker *toCopy) {
 
 void bamChunker_destruct(BamChunker *bamChunker) {
     if (bamChunker->bamFile != NULL) free(bamChunker->bamFile);
+    if (bamChunker->readEnumerator != NULL) stHash_destruct(bamChunker->readEnumerator);
     stList_destruct(bamChunker->chunks);
     free(bamChunker);
 }
