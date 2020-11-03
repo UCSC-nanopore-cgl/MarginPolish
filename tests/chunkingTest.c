@@ -989,7 +989,7 @@ static void test_readSubstringsFromVcf(CuTest *testCase) {
     RleString *chunkReferenceRLE = bamChunk_getReferenceSubstring(bamChunk, INPUT_MVVP_REF, params);
     char *chunkReferenceRAW = rleString_expand(chunkReferenceRLE);
     stList *chunkVcfEntries = getVcfEntriesForRegion(vcfEntries, NULL, bamChunk->refSeqName,
-                                                     bamChunk->chunkOverlapStart,  bamChunk->chunkOverlapEnd);
+                                                     bamChunk->chunkOverlapStart,  bamChunk->chunkOverlapEnd, params);
     updateVcfEntriesWithSubstringsAndPositions(chunkVcfEntries, chunkReferenceRAW, strlen(chunkReferenceRAW), FALSE, params);
 
     stList *reads = stList_construct3(0, (void (*)(void *)) bamChunkRead_destruct);

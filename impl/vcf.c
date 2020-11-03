@@ -15,7 +15,7 @@ VcfEntry *vcfEntry_construct(char *refSeqName, int64_t refPos, int64_t rawRefPos
     vcfEntry->refSeqName = stString_copy(refSeqName);
     vcfEntry->refPos = refPos;
     vcfEntry->rawRefPosInformativeOnly = rawRefPos;
-    vcfEntry->phredQuality = phredQuality;
+    vcfEntry->quality = phredQuality;
     vcfEntry->alleles = alleles == NULL ? stList_construct3(0, (void(*)(void*))rleString_destruct) : alleles;
     vcfEntry->gt1 = gt1;
     vcfEntry->gt2 = gt2;
@@ -46,10 +46,6 @@ RleString *getVcfEntryAlleleH2(VcfEntry *vcfEntry) {
     return stList_get(vcfEntry->alleles, vcfEntry->gt2);
 }
 
-#define GQ_WEIGHT .8
-#define  Q_WEIGHT .2
-#define DEFAULT_MIN_VCF_QUAL -1
-
 stHash *parseVcf(char *vcfFile, Params *params) {
     return parseVcf2(vcfFile, NULL, params);
 }
@@ -69,11 +65,18 @@ stHash *getContigToVariantMap(stList *vcfEntries) {
     return map;
 }
 
-int vcfEntryCmpFn(const void *a, const void *b) {
+int vcfEntry_positionCmp(const void *a, const void *b) {
     VcfEntry *A = (VcfEntry*) a;
     VcfEntry *B = (VcfEntry*) b;
     if (A->refPos == B->refPos) return 0;
     return A->refPos < B->refPos ? -1 : 1;
+}
+
+int vcfEntry_qualityCmp(const void *a, const void *b) {
+    VcfEntry *A = (VcfEntry*) a;
+    VcfEntry *B = (VcfEntry*) b;
+    if (A->quality == B->quality) return 0;
+    return A->quality < B->quality ? -1 : 1; //ascending order, and we pop off end
 }
 
 stHash *parseVcf2(char *vcfFile, char *regionStr, Params *params) {
@@ -158,18 +161,7 @@ stHash *parseVcf2(char *vcfFile, char *regionStr, Params *params) {
             continue;
         }
 
-
-        // todo variant quality
-        double variantQuality = -1;
-        double genotypeQuality = -1;
-        double quality = DEFAULT_MIN_VCF_QUAL;
-        if (genotypeQuality > 0 && quality > 0) {
-            variantQuality = toPhred( GQ_WEIGHT * fromPhred(genotypeQuality) + Q_WEIGHT * fromPhred(quality));
-        } else if (genotypeQuality > 0) {
-            variantQuality = genotypeQuality;
-        } else if (quality > 0) {
-            variantQuality = quality;
-        }
+        double quality = rec->qual;
 
         // get alleles
         stList *alleles = stList_construct3(0, (void (*)(void*)) rleString_destruct);
@@ -181,7 +173,7 @@ stHash *parseVcf2(char *vcfFile, char *regionStr, Params *params) {
         }
 
         // save it
-        VcfEntry *entry = vcfEntry_construct(chrom, pos, pos, variantQuality, alleles, gt1, gt2);
+        VcfEntry *entry = vcfEntry_construct(chrom, pos, pos, quality, alleles, gt1, gt2);
         stList *contigList = stHash_search(entries, entry->refSeqName);
         if (contigList == NULL) {
             contigList = stList_construct3(0, (void(*)(void*))vcfEntry_destruct);
@@ -212,7 +204,7 @@ stHash *parseVcf2(char *vcfFile, char *regionStr, Params *params) {
     char *contigName = NULL;
     while ((contigName = stHash_getNext(itor)) != NULL) {
         stList *contigEntries = stHash_search(entries, contigName);
-        stList_sort(contigEntries, vcfEntryCmpFn);
+        stList_sort(contigEntries, vcfEntry_positionCmp);
         assert(((VcfEntry*) stList_get(contigEntries, 0))->refPos <= ((VcfEntry*) stList_get(contigEntries,
                 stList_length(contigEntries) - 1))->refPos);
     }
@@ -250,7 +242,8 @@ int64_t binarySearchVcfListForFirstIndexAfterRefPos(stList *vcfEntries, int64_t 
     return binarySearchVcfListForFirstIndexAfterRefPos2(vcfEntries, refPos, 0, stList_length(vcfEntries) - 1);
 }
 
-stList *getVcfEntriesForRegion2(stHash *vcfEntryMap, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos, double minQual) {
+stList *getVcfEntriesForRegion(stHash *vcfEntryMap, uint64_t *rleMap, char *refSeqName, int64_t startPos,
+        int64_t endPos, Params *params) {
     // get entries and sanity check
     stList *vcfEntries = stHash_search(vcfEntryMap, refSeqName);
     if (vcfEntries == NULL) {
@@ -262,6 +255,7 @@ stList *getVcfEntriesForRegion2(stHash *vcfEntryMap, uint64_t *rleMap, char *ref
 
     // the entries for this region we want
     stList *regionEntries = stList_construct3(0, (void(*)(void*))vcfEntry_destruct);
+    stList *filteredEntries = stList_construct3(0, (void(*)(void*))vcfEntry_destruct);
 
     // binary search through list for start pos
     int64_t startIdx = binarySearchVcfListForFirstIndexAfterRefPos(vcfEntries, startPos);
@@ -276,7 +270,7 @@ stList *getVcfEntriesForRegion2(stHash *vcfEntryMap, uint64_t *rleMap, char *ref
         assert(stString_eq(refSeqName, e->refSeqName));
         assert(startPos <= e->refPos);
         if (endPos <= e->refPos) break;
-        if (minQual > e->phredQuality) {
+        if (params->phaseParams->minVariantQuality > e->quality) {
             qualityFilteredCount++;
             continue;
         }
@@ -284,23 +278,55 @@ stList *getVcfEntriesForRegion2(stHash *vcfEntryMap, uint64_t *rleMap, char *ref
         if (rleMap != NULL) {
             refPos = rleMap[refPos];
         }
-        VcfEntry *copy = vcfEntry_construct(e->refSeqName, refPos, e->rawRefPosInformativeOnly, e->phredQuality,
+
+        // make variant
+        VcfEntry *copy = vcfEntry_construct(e->refSeqName, refPos, e->rawRefPosInformativeOnly, e->quality,
                 copyListOfRleStrings(e->alleles), e->gt1, e->gt2);
         copy->rootVcfEntry = e;
-        stList_append(regionEntries, copy);
+
+        // where to save it?
+        if (params->phaseParams->useVariantSelectionAdaptiveSampling &&
+            e->quality < params->phaseParams->variantSelectionAdaptiveSamplingPrimaryThreshold) {
+            stList_append(filteredEntries, copy);
+        } else {
+            stList_append(regionEntries, copy);
+        }
     }
-    if (minQual != DEFAULT_MIN_VCF_QUAL) {
-        char *logIdentifier = getLogIdentifier();
-        st_logInfo(" %s Filtered %"PRIu64" VCF records for quality below %.2f, with %"PRIu64" remaining.\n",
-                   logIdentifier, minQual, stList_length(regionEntries));
-        free(logIdentifier);
+
+    // do we need to keep some filtered variants?
+    int64_t initiallyFilteredCount = stList_length(filteredEntries);
+    int64_t currentVariantCount = stList_length(regionEntries);
+    int64_t desiredVariantCount = (endPos - startPos) /
+                                  params->phaseParams->variantSelectionAdaptiveSamplingDesiredBasepairsPerVariant;
+    if (params->phaseParams->useVariantSelectionAdaptiveSampling && currentVariantCount < desiredVariantCount) {
+        // shuffle so that ties are not broken by position
+        stList_shuffle(filteredEntries);
+        // sort by quality descending
+        stList_sort(filteredEntries, vcfEntry_qualityCmp);
+
+        // take from top until we have desired amount or are empty
+        int64_t currentFilteredCount = initiallyFilteredCount;
+        while (currentFilteredCount > 0 && currentVariantCount < desiredVariantCount) {
+            VcfEntry *entry = stList_pop(filteredEntries);
+            stList_append(regionEntries, entry);
+            currentFilteredCount--;
+            currentVariantCount++;
+        }
+
+        // resort entries
+        stList_sort(regionEntries, vcfEntry_positionCmp);
     }
+
+    char *logIdentifier = getLogIdentifier();
+    st_logInfo(" %s Filtered %"PRIu64" VCF records for quality < %.2f, kept %"PRId64" variants with quality < %.2f, totalling %"PRIu64" (every %"PRId64"bp).\n",
+               logIdentifier, qualityFilteredCount, params->phaseParams->minVariantQuality,
+               initiallyFilteredCount - stList_length(filteredEntries),
+               params->phaseParams->variantSelectionAdaptiveSamplingPrimaryThreshold,  stList_length(regionEntries),
+               (int64_t) ((endPos - startPos) / stList_length(regionEntries)));
+
+    stList_destruct(filteredEntries);
+    free(logIdentifier);
     return regionEntries;
-}
-
-
-stList *getVcfEntriesForRegion(stHash *vcfEntryMap, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos) {
-    return getVcfEntriesForRegion2(vcfEntryMap, rleMap, refSeqName, startPos, endPos, DEFAULT_MIN_VCF_QUAL);
 }
 
 
@@ -392,7 +418,7 @@ void updateVcfEntriesWithSubstringsAndPositions(stList *vcfEntries, char *refere
     }
 }
 
-//TODO 
+//TODO
 /*BubbleGraph *updateOriginalVcfEntriesWithBubbleData(BamChunk *bamChunk, stList *bamChunkReads, stHash *readIdToIdx,
         stGenomeFragment *gF, BubbleGraph *bg, stList *chunkVcfEntriesToBubbles, stSet *hap1Reads, stSet *hap2Reads,
         Params *params, char *logIdentifier) {

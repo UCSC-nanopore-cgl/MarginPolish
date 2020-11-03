@@ -35,6 +35,10 @@ stRPHmmParameters *stRPHmmParameters_construct() {
     params->includeHomozygousVCFEntries = FALSE;
     params->onlyUsePassVCFEntries = TRUE;
     params->onlyUseSNPVCFEntries = FALSE;
+    params->useVariantSelectionAdaptiveSampling = TRUE;
+    params->variantSelectionAdaptiveSamplingPrimaryThreshold = 0.9;
+    params->variantSelectionAdaptiveSamplingDesiredBasepairsPerVariant = 1000;
+    params->minVariantQuality = 0.15;
     params->bubbleFindingIterations = 1;
     params->bubbleMinBinomialStrandLikelihood = .05;
     params->bubbleMinBinomialReadSplitLikelihood = .05;
@@ -66,6 +70,10 @@ stRPHmmParameters *stRPHmmParameters_copy(stRPHmmParameters *toCopy) {
     params->includeHomozygousVCFEntries = toCopy->includeHomozygousVCFEntries;
     params->onlyUsePassVCFEntries = toCopy->onlyUsePassVCFEntries;
     params->onlyUseSNPVCFEntries = toCopy->onlyUseSNPVCFEntries;
+    params->useVariantSelectionAdaptiveSampling = toCopy->useVariantSelectionAdaptiveSampling;
+    params->variantSelectionAdaptiveSamplingPrimaryThreshold = toCopy->variantSelectionAdaptiveSamplingPrimaryThreshold;
+    params->variantSelectionAdaptiveSamplingDesiredBasepairsPerVariant = toCopy->variantSelectionAdaptiveSamplingDesiredBasepairsPerVariant;
+    params->minVariantQuality = toCopy->minVariantQuality;
     params->bubbleFindingIterations = toCopy->bubbleFindingIterations;
     params->bubbleMinBinomialStrandLikelihood = toCopy->bubbleMinBinomialStrandLikelihood;
     params->bubbleMinBinomialReadSplitLikelihood = toCopy->bubbleMinBinomialReadSplitLikelihood;
@@ -111,6 +119,14 @@ void stRPHmmParameters_parseParametersFromJson(stRPHmmParameters *params, char *
             params->onlyUsePassVCFEntries = stJson_parseBool(js, tokens, ++i);
         } else if (strcmp(keyString, "onlyUseSNPVCFEntries") == 0) {
             params->onlyUseSNPVCFEntries = stJson_parseBool(js, tokens, ++i);
+        } else if (strcmp(keyString, "useVariantSelectionAdaptiveSampling") == 0) {
+            params->useVariantSelectionAdaptiveSampling = stJson_parseBool(js, tokens, ++i);
+        } else if (strcmp(keyString, "variantSelectionAdaptiveSamplingPrimaryThreshold") == 0) {
+            params->variantSelectionAdaptiveSamplingPrimaryThreshold = stJson_parseFloat(js, tokens, ++i);
+        } else if (strcmp(keyString, "variantSelectionAdaptiveSamplingDesiredBasepairsPerVariant") == 0) {
+            params->variantSelectionAdaptiveSamplingDesiredBasepairsPerVariant = stJson_parseInt(js, tokens, ++i);
+        } else if (strcmp(keyString, "minVariantQuality") == 0) {
+            params->minVariantQuality = stJson_parseFloat(js, tokens, ++i);
         } else if (strcmp(keyString, "bubbleFindingIterations") == 0) {
             params->bubbleFindingIterations = stJson_parseInt(js, tokens, ++i);
         } else if (strcmp(keyString, "bubbleMinBinomialStrandLikelihood") == 0) {

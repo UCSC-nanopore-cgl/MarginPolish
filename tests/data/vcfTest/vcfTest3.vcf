@@ -1,0 +1,15 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##contig=<ID=vcfTest3,length=128>
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	SAMPLE
+vcfTest3	101	.	A	G	50	.	.	GT	0/1
+vcfTest3	102	.	A	G	29	.	.	GT	0/1
+vcfTest3	103	.	A	G	30	.	.	GT	0/1
+vcfTest3	104	.	A	G	10	.	.	GT	0/1
+vcfTest3	105	.	A	G	10	.	.	GT	0/1
+vcfTest3	106	.	A	G	40	.	.	GT	0/1
+vcfTest3	107	.	A	G	50	.	.	GT	0/1
+vcfTest3	108	.	A	G	9	.	.	GT	0/1
+vcfTest3	109	.	A	G	15	.	.	GT	0/1
+vcfTest3	110	.	A	G	20	.	.	GT	0/1

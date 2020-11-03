@@ -277,6 +277,18 @@ struct _stRPHmmParameters {
 	// should we stitch with primary reads or all reads (including filtering via downsampling or other means)
 	bool stitchWithPrimaryReadsOnly;
 
+	// should we use sampling, where we keep..
+	bool useVariantSelectionAdaptiveSampling;
+
+	// ..all variants above this threshold
+	double variantSelectionAdaptiveSamplingPrimaryThreshold;
+
+	// ..and if we don't have (on average) a variant every this many bp
+	int64_t variantSelectionAdaptiveSamplingDesiredBasepairsPerVariant;
+
+	// ..then take variants sorted by qual until we hit that threshold. but not any variant below this threshold:
+    double minVariantQuality;
+
 	// Number of iterations to search for bubbles (and remove bubbles with strand or read split below some threshold)
 	int64_t bubbleFindingIterations;
 
@@ -1399,7 +1411,7 @@ struct _vcfEntry {
     char *refSeqName;
     int64_t refPos;
     int64_t rawRefPosInformativeOnly;
-    double phredQuality;
+    double quality;
     stList *alleles; //refAllele is alleles[0]
     int64_t gt1;
     int64_t gt2;
@@ -1418,8 +1430,8 @@ RleString *getVcfEntryAlleleH2(VcfEntry *vcfEntry);
 stHash *parseVcf(char *vcfFile, Params *params);
 stHash *parseVcf2(char *vcfFile, char *regionStr, Params *params);
 int64_t binarySearchVcfListForFirstIndexAfterRefPos(stList *vcfEntries, int64_t refPos); // just exposed for testing
-stList *getVcfEntriesForRegion(stHash *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos);
-stList *getVcfEntriesForRegion2(stHash *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos, int64_t endPos, double minQual);
+stList *getVcfEntriesForRegion(stHash *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos,
+        int64_t endPos, Params *params);
 stList *getAlleleSubstrings2(VcfEntry *entry, char *referenceSeq, int64_t refSeqLen, int64_t *refStartPos,
         int64_t *refEndPosIncl, bool putRefPosInPOASpace, int64_t expansion, bool useRunLengthEncoding);
 stList *getAlleleSubstrings(VcfEntry *entry, RleString *referenceSeq, Params *params,

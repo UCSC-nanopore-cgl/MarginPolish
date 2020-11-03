@@ -295,7 +295,7 @@ int main(int argc, char *argv[]) {
 
         // get VCF string
         stList *chunkVcfEntries = getVcfEntriesForRegion(vcfEntries, NULL, bamChunk->refSeqName,
-                                                 bamChunk->chunkOverlapStart,  bamChunk->chunkOverlapEnd);
+                                                 bamChunk->chunkOverlapStart,  bamChunk->chunkOverlapEnd, params);
         updateVcfEntriesWithSubstringsAndPositions(chunkVcfEntries, chunkReference, strlen(chunkReference),
                 FALSE, params);
 

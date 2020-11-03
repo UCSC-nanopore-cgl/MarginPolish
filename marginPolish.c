@@ -639,7 +639,7 @@ int main(int argc, char *argv[]) {
                 uint64_t *rleMap = params->polishParams->useRunLengthEncoding ?
                                    rleString_getNonRleToRleCoordinateMap(rleReference) : NULL;
                 chunkVcfEntries = getVcfEntriesForRegion(vcfEntries, rleMap, bamChunk->refSeqName,
-                        bamChunk->chunkOverlapStart,  bamChunk->chunkOverlapEnd);
+                        bamChunk->chunkOverlapStart,  bamChunk->chunkOverlapEnd, params);
                 st_logInfo(" %s Got %"PRId64" VCF entries for region\n", logIdentifier, stList_length(chunkVcfEntries));
                 if (rleMap != NULL) free(rleMap);
             }

@@ -13,6 +13,7 @@ static char* VCF1 = "../tests/data/vcfTest/vcfTest1.vcf";
 static char* VCF1_GZ = "../tests/data/vcfTest/vcfTest1.vcf.gz";
 static char* VCF2 = "../tests/data/vcfTest/vcfTest2.vcf";
 static char* VCF2_REF = "../tests/data/vcfTest/vcfTest2.ref.fa";
+static char* VCF3 = "../tests/data/vcfTest/vcfTest3.vcf";
 
 /*
 #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	SAMPLE
@@ -209,7 +210,7 @@ void test_vcfAlleleSubstrings(CuTest *testCase) {
 
     // get substrings
     // this conversion is to put things in poa-space, which should be countered by allele substrings
-    vcfEntries = getVcfEntriesForRegion(vcfEntryMap, NULL, "vcfTest2", 0, 128);
+    vcfEntries = getVcfEntriesForRegion(vcfEntryMap, NULL, "vcfTest2", 0, 128, params);
     char *refSeq = getSequenceFromReference(VCF2_REF,"vcfTest2", 0, 128);
     RleString *refRleString = RLE ? rleString_construct(refSeq) : rleString_construct_no_rle(refSeq);
     stList *allAlleleSubstringsPoaSpace = stList_construct3(0, (void (*)(void*)) stList_destruct);
@@ -259,7 +260,7 @@ void test_vcfAlleleSubstrings(CuTest *testCase) {
 
 
     // same for alleles in specific region
-    stList *regionVcfEntries = getVcfEntriesForRegion(vcfEntryMap, NULL, "vcfTest2", 64, 128);
+    stList *regionVcfEntries = getVcfEntriesForRegion(vcfEntryMap, NULL, "vcfTest2", 64, 128, params);
     char *regionRefSubstring = stString_getSubString(refSeq, 64, 64);
     refRleString = RLE ? rleString_construct(regionRefSubstring) : rleString_construct_no_rle(regionRefSubstring);
     stList *allRegionAlleleSubstrings = stList_construct3(0, (void (*)(void*)) stList_destruct);
@@ -330,6 +331,76 @@ void test_vcfBinarySearchForVcfEntryStartIdx(CuTest *testCase) {
     }
 }
 
+void test_vcfAdaptiveSampling1(CuTest *testCase) {
+    Params *params = params_readParams(PARAMS);
+    params->phaseParams->variantSelectionAdaptiveSamplingPrimaryThreshold = 30;
+    params->phaseParams->minVariantQuality = 10;
+    params->phaseParams->useVariantSelectionAdaptiveSampling = true;
+    params->phaseParams->variantSelectionAdaptiveSamplingDesiredBasepairsPerVariant = 1000;
+
+    stHash *vcfEntryMap = parseVcf(VCF3, params);
+    stList *chunkVcfEntries = getVcfEntriesForRegion(vcfEntryMap, NULL, "vcfTest3", 0, 8000, params);
+
+    CuAssertTrue(testCase, stList_length(chunkVcfEntries) == 8);
+    for (int64_t i = 0; i < stList_length(chunkVcfEntries); i++) {
+        VcfEntry *entry = stList_get(chunkVcfEntries, i);
+        switch (i) {
+            case 0:
+                CuAssertTrue(testCase, entry->refPos == 101); break;
+            case 1:
+                CuAssertTrue(testCase, entry->refPos == 102); break;
+            case 2:
+                CuAssertTrue(testCase, entry->refPos == 103); break;
+            case 3:
+                CuAssertTrue(testCase, entry->refPos == 104 || entry->refPos == 105); break;
+            case 4:
+                CuAssertTrue(testCase, entry->refPos == 106); break;
+            case 5:
+                CuAssertTrue(testCase, entry->refPos == 107); break;
+            case 6:
+                CuAssertTrue(testCase, entry->refPos == 109); break;
+            case 7:
+                CuAssertTrue(testCase, entry->refPos == 110); break;
+            default:
+                CuAssertTrue(testCase, FALSE);
+        }
+    }
+
+    stHash_destruct(vcfEntryMap);
+    params_destruct(params);
+}
+
+void test_vcfAdaptiveSampling2(CuTest *testCase) {
+    Params *params = params_readParams(PARAMS);
+    params->phaseParams->variantSelectionAdaptiveSamplingPrimaryThreshold = 30;
+    params->phaseParams->minVariantQuality = 30;
+    params->phaseParams->useVariantSelectionAdaptiveSampling = true;
+    params->phaseParams->variantSelectionAdaptiveSamplingDesiredBasepairsPerVariant = 1000;
+
+    stHash *vcfEntryMap = parseVcf(VCF3, params);
+    stList *chunkVcfEntries = getVcfEntriesForRegion(vcfEntryMap, NULL, "vcfTest3", 0, 8000, params);
+
+    CuAssertTrue(testCase, stList_length(chunkVcfEntries) == 4);
+    for (int64_t i = 0; i < stList_length(chunkVcfEntries); i++) {
+        VcfEntry *entry = stList_get(chunkVcfEntries, i);
+        switch (i) {
+            case 0:
+                CuAssertTrue(testCase, entry->refPos == 101); break;
+            case 1:
+                CuAssertTrue(testCase, entry->refPos == 103); break;
+            case 2:
+                CuAssertTrue(testCase, entry->refPos == 106); break;
+            case 3:
+                CuAssertTrue(testCase, entry->refPos == 107); break;
+            default:
+                CuAssertTrue(testCase, FALSE);
+        }
+    }
+
+    stHash_destruct(vcfEntryMap);
+    params_destruct(params);
+}
+
 CuSuite *vcfTestSuite(void) {
     CuSuite *suite = CuSuiteNew();
 
@@ -340,6 +411,8 @@ CuSuite *vcfTestSuite(void) {
     SUITE_ADD_TEST(suite, test_vcfParseRLESNP);
     SUITE_ADD_TEST(suite, test_vcfAlleleSubstrings);
     SUITE_ADD_TEST(suite, test_vcfBinarySearchForVcfEntryStartIdx);
+    SUITE_ADD_TEST(suite, test_vcfAdaptiveSampling1);
+    SUITE_ADD_TEST(suite, test_vcfAdaptiveSampling2);
 
     return suite;
 }
