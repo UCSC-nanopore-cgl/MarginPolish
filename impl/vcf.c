@@ -317,12 +317,13 @@ stList *getVcfEntriesForRegion(stHash *vcfEntryMap, uint64_t *rleMap, char *refS
         stList_sort(regionEntries, vcfEntry_positionCmp);
     }
 
+    int64_t totalKeptEntries = stList_length(regionEntries);
     char *logIdentifier = getLogIdentifier();
     st_logInfo(" %s Filtered %"PRIu64" VCF records for quality < %.2f, kept %"PRId64" variants with quality < %.2f, totalling %"PRIu64" (every %"PRId64"bp).\n",
                logIdentifier, qualityFilteredCount, params->phaseParams->minVariantQuality,
                initiallyFilteredCount - stList_length(filteredEntries),
                params->phaseParams->variantSelectionAdaptiveSamplingPrimaryThreshold,  stList_length(regionEntries),
-               (int64_t) ((endPos - startPos) / stList_length(regionEntries)));
+               (int64_t) ((endPos - startPos) / (totalKeptEntries == 0 ? -1 : totalKeptEntries)));
 
     stList_destruct(filteredEntries);
     free(logIdentifier);
