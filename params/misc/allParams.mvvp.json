@@ -11,8 +11,8 @@
 		"onlyUsePassVCFEntries": true,
 		"onlyUseSNPVCFEntries": true,
 		"useVariantSelectionAdaptiveSampling": true,
-		"variantSelectionAdaptiveSamplingPrimaryThreshold": 10,
-		"variantSelectionAdaptiveSamplingDesiredBasepairsPerVariant": 1000,
-		"minVariantQuality": 0.7
+		"variantSelectionAdaptiveSamplingPrimaryThreshold": 20,
+		"variantSelectionAdaptiveSamplingDesiredBasepairsPerVariant": 2000,
+		"minVariantQuality": 10
 	}
 }

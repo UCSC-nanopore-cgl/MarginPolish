@@ -346,7 +346,6 @@ stList *mergeTilingPaths(stList *tilingPaths) {
 
     // If no tiling paths in input warn and return an empty tiling path
     if (stList_length(tilingPaths) == 0) {
-        st_logCritical("WARNING: Zero tiling paths to merge\n");
         stList_destruct(tilingPaths);
         return stList_construct();
     }
