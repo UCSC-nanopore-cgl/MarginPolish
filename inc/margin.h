@@ -292,8 +292,11 @@ struct _stRPHmmParameters {
     // for output vcf
     bool updateAllOutputVCFFormatFields;
 
-    // likelihood at which we start a new phase set give read concordance
+    // likelihood at which we start a new phase set based on read concordance between haplotypes
     double phasesetMinBinomialReadSplitLikelihood;
+
+    // ratio of discordant reads to all reads for phase set determination
+    double phasesetMaxDiscordantRatio;
 
 	// Number of iterations to search for bubbles (and remove bubbles with strand or read split below some threshold)
 	int64_t bubbleFindingIterations;

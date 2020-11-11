@@ -854,12 +854,12 @@ void writePhasedVcf(char *inputVcfFile, char *regionStr, char *outputVcfFile, ch
                         chrom, pos, hcpv1, hcpv2);
             } else if (binomialPValue(hcpv1 + hcpv2, hcpv1) < params->phaseParams->phasesetMinBinomialReadSplitLikelihood) {
                 newPhaseSet = TRUE;
-                st_logInfo("  Calling new phase set at %s:%"PRId64" because unlikely concordancy (H1:%"PRId32", H2:%"PRId32", prob:%.3f)\n",
+                st_logInfo("  Calling new phase set at %s:%"PRId64" because unlikely concordancy (H1:%"PRId32", H2:%"PRId32", prob:%.8f)\n",
                         chrom, pos, hcpv1, hcpv2, binomialPValue(hcpv1 + hcpv2, hcpv1));
-            } else if (hdpv1 + hdpv2 > hcpv1 + hcpv2) {
+            } else if (1.0 * (hdpv1 + hdpv2) / (hcpv1 + hcpv2 + hdpv1 + hdpv2) > params->phaseParams->phasesetMaxDiscordantRatio) {
                 newPhaseSet = TRUE;
-                st_logInfo("  Calling new phase set at %s:%"PRId64" because of discordancy (H1C:%"PRId32" + H2C:%"PRId32" <= H1D:%"PRId32" + H2D:%"PRId32")\n",
-                        chrom, pos, hcpv1, hcpv2, hdpv1, hdpv2);
+                st_logInfo("  Calling new phase set at %s:%"PRId64" because of discordancy (H1D:%"PRId32"+H2D:%"PRId32" / H1C:%"PRId32"+H2C:%"PRId32"+H1D:%"PRId32"+H2D:%"PRId32" = %.4f)\n",
+                        chrom, pos, hdpv1, hdpv2, hcpv1, hcpv2, hdpv1, hdpv2, 1.0 * (hdpv1 + hdpv2) / (hcpv1 + hcpv2 + hdpv1 + hdpv2));
             }
         }
 

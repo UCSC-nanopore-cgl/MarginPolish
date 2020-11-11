@@ -28,9 +28,10 @@ void usage() {
     fprintf(stderr, "Tags reads in ALIGN_BAM using variants in VARIANT_VCF.\n");
 
     fprintf(stderr, "\nRequired arguments:\n");
-    fprintf(stderr, "    BAM_FILE is the alignment of reads to the assembly (or reference).\n");
-    fprintf(stderr, "    ASSEMBLY_FASTA is the reference sequence BAM file in fasta format.\n");
-    fprintf(stderr, "    PARAMS is the file with marginPolish parameters.\n");
+    fprintf(stderr, "    ALIGN_BAM is the alignment of reads to the reference.\n");
+    fprintf(stderr, "    REFERENCE_FASTA is the reference sequence BAM file in fasta format.\n");
+    fprintf(stderr, "    VARIANT_VCF is the set of variants to use for phasing.\n");
+    fprintf(stderr, "    PARAMS is the file with margin parameters.\n");
 
     fprintf(stderr, "\nDefault options:\n");
     fprintf(stderr, "    -h --help                : Print this help screen\n");
@@ -43,6 +44,10 @@ void usage() {
     fprintf(stderr, "                                 Format: chr:start_pos-end_pos (chr3:2000-3000)\n");
     fprintf(stderr, "    -p --depth               : Will override the downsampling depth set in PARAMS\n");
     fprintf(stderr, "    -k --tempFilesToDisk     : Write temporary files to disk (for --diploid or supplementary output)\n");
+
+    fprintf(stderr, "\nOutput options:\n");
+    fprintf(stderr, "    -M --skipHaplotypeBAM    : Do not write out phased BAM\n");
+    fprintf(stderr, "    -V --skipPhasedVCF       : Do not write out phased VCF\n");
 
     fprintf(stderr, "\n");
 }
@@ -61,6 +66,8 @@ int main(int argc, char *argv[]) {
     int numThreads = 1;
     int64_t maxDepth = -1;
     bool inMemory = TRUE;
+    bool shouldOutputHaplotaggedBam = TRUE;
+    bool shouldOutputPhasedVcf = TRUE;
 
     if (argc < 4) {
         free(outputBase);
@@ -86,10 +93,12 @@ int main(int argc, char *argv[]) {
                 { "region", required_argument, 0, 'r'},
                 { "depth", required_argument, 0, 'p'},
                 { "tempFilesToDisk", no_argument, 0, 'k'},
+                { "skipHaplotypeBAM", no_argument, 0, 'M'},
+                { "skipPhasedVCF", no_argument, 0, 'V'},
                 { 0, 0, 0, 0 } };
 
         int option_index = 0;
-        int key = getopt_long(argc-2, &argv[2], "ha:o:p:t:r:k", long_options, &option_index);
+        int key = getopt_long(argc-2, &argv[2], "ha:o:p:t:r:kMV", long_options, &option_index);
 
         if (key == -1) {
             break;
@@ -125,6 +134,12 @@ int main(int argc, char *argv[]) {
         case 'k':
             inMemory = FALSE;
             break;
+        case 'M':
+            shouldOutputHaplotaggedBam = FALSE;
+            break;
+        case 'V':
+            shouldOutputPhasedVcf = FALSE;
+            break;
         default:
             usage();
             free(outputBase);
@@ -134,6 +149,11 @@ int main(int argc, char *argv[]) {
             free(paramsFile);
             return 0;
         }
+    }
+
+    // sanity check (conflicting params)
+    if (!shouldOutputHaplotaggedBam && !shouldOutputPhasedVcf) {
+        st_errAbort("With --skipHaplotypeBAM and --skipPhasedVCF there will be no output.\n");
     }
 
     // sanity check (verify files exist)
@@ -434,56 +454,75 @@ int main(int argc, char *argv[]) {
     free(tds);
 
     // maybe write final haplotyped bams
-    time_t hapBamStart = time(NULL);
-    st_logInfo("> Writing final haplotyped BAMs\n");
-    stSet *allReadIdsForHaplotypingHap1 = stSet_construct3(stHash_stringKey, stHash_stringEqualKey, NULL);
-    stSet *allReadIdsForHaplotypingHap2 = stSet_construct3(stHash_stringKey, stHash_stringEqualKey, NULL);
-    for(int64_t i = 0; i < stList_length(allReadIdsHap1); i++) {
-        stSet_insert(allReadIdsForHaplotypingHap1, stList_get(allReadIdsHap1, i));
-    }
-    for(int64_t i = 0; i < stList_length(allReadIdsHap2); i++) {
-        stSet_insert(allReadIdsForHaplotypingHap2, stList_get(allReadIdsHap2, i));
-    }
-    // write it
-    BamChunk *whbBamChunk = NULL;
-    if (regionStr != NULL) {
-        char regionContig[128] = "";
-        int regionStart = 0;
-        int regionEnd = 0;
-        int scanRet = sscanf(regionStr, "%[^:]:%d-%d", regionContig, &regionStart, &regionEnd);
-        if (scanRet != 3) {
-            regionEnd = (int)((BamChunk*)stList_get(bamChunker->chunks, bamChunker->chunkCount -1))->chunkOverlapEnd;
+    if (shouldOutputHaplotaggedBam) {
+        // logging
+        time_t hapBamStart = time(NULL);
+        st_logInfo("> Writing final haplotyped BAMs\n");
+
+        // get all reads
+        stSet *allReadIdsForHaplotypingHap1 = stSet_construct3(stHash_stringKey, stHash_stringEqualKey, NULL);
+        stSet *allReadIdsForHaplotypingHap2 = stSet_construct3(stHash_stringKey, stHash_stringEqualKey, NULL);
+        for (int64_t i = 0; i < stList_length(allReadIdsHap1); i++) {
+            stSet_insert(allReadIdsForHaplotypingHap1, stList_get(allReadIdsHap1, i));
         }
-        whbBamChunk = bamChunk_construct2(regionContig, -1, regionStart, regionStart, regionEnd,
-                regionEnd, 0, bamChunker);
+        for (int64_t i = 0; i < stList_length(allReadIdsHap2); i++) {
+            stSet_insert(allReadIdsForHaplotypingHap2, stList_get(allReadIdsHap2, i));
+        }
+
+        // write it
+        BamChunk *whbBamChunk = NULL;
+        if (regionStr != NULL) {
+            char regionContig[128] = "";
+            int regionStart = 0;
+            int regionEnd = 0;
+            int scanRet = sscanf(regionStr, "%[^:]:%d-%d", regionContig, &regionStart, &regionEnd);
+            if (scanRet != 3) {
+                regionEnd = (int) ((BamChunk *) stList_get(bamChunker->chunks,
+                                                           bamChunker->chunkCount - 1))->chunkOverlapEnd;
+            }
+            whbBamChunk = bamChunk_construct2(regionContig, -1, regionStart, regionStart, regionEnd,
+                                              regionEnd, 0, bamChunker);
+        }
+        writeHaplotaggedBam(whbBamChunk, bamChunker->bamFile, outputBase,
+                            allReadIdsForHaplotypingHap1, allReadIdsForHaplotypingHap2, params, "");
+        if (whbBamChunk != NULL) {
+            bamChunk_destruct(whbBamChunk);
+        }
+
+        // loggit
+        char *hapBamTDS = getTimeDescriptorFromSeconds(time(NULL) - hapBamStart);
+        st_logCritical("> Wrote haplotyped bams in %s\n", hapBamTDS);
+
+        // cleanup
+        free(hapBamTDS);
+        stSet_destruct(allReadIdsForHaplotypingHap1);
+        stSet_destruct(allReadIdsForHaplotypingHap2);
     }
-    writeHaplotaggedBam(whbBamChunk, bamChunker->bamFile, outputBase,
-                        allReadIdsForHaplotypingHap1, allReadIdsForHaplotypingHap2, params, "");
-    if (whbBamChunk != NULL) {
-        bamChunk_destruct(whbBamChunk);
-    }
-    char *hapBamTDS = getTimeDescriptorFromSeconds(time(NULL) - hapBamStart);
-    st_logCritical("> Wrote haplotyped bams in %s\n", hapBamTDS);
-    free(hapBamTDS);
 
     // maybe write VCF
-    time_t vcfWriteStart = time(NULL);
-    char *outputVcfFile = stString_print("%s.phased.vcf", outputBase);
-    char *outputPhaseSetFile = stString_print("%s.phaseset.bed", outputBase);
-    st_logCritical("> Writing phased VCF to %s\n", outputVcfFile);
-    updateHaplotypeSwitchingInVcfEntries(bamChunker, chunkWasSwitched, vcfEntries);
-    writePhasedVcf(vcfFile, regionStr, outputVcfFile, outputPhaseSetFile, vcfEntries, params);
-    char *phasedVcfTDS = getTimeDescriptorFromSeconds(time(NULL) - vcfWriteStart);
-    st_logCritical("> Wrote phased VCF in %s\n", phasedVcfTDS);
-    free(phasedVcfTDS);
+    if (shouldOutputPhasedVcf) {
+        // loggit
+        time_t vcfWriteStart = time(NULL);
+        char *outputVcfFile = stString_print("%s.phased.vcf", outputBase);
+        char *outputPhaseSetFile = stString_print("%s.phaseset.bed", outputBase);
+        st_logCritical("> Writing phased VCF to %s\n", outputVcfFile);
+
+        // write it
+        updateHaplotypeSwitchingInVcfEntries(bamChunker, chunkWasSwitched, vcfEntries);
+        writePhasedVcf(vcfFile, regionStr, outputVcfFile, outputPhaseSetFile, vcfEntries, params);
+
+        // loggit
+        char *phasedVcfTDS = getTimeDescriptorFromSeconds(time(NULL) - vcfWriteStart);
+        st_logCritical("> Wrote phased VCF in %s\n", phasedVcfTDS);
+
+        // cleanup
+        free(phasedVcfTDS);
+        free(outputVcfFile);
+        free(outputPhaseSetFile);
+    }
 
     // cleanup
-    free(outputVcfFile);
-    free(outputPhaseSetFile);
     free(chunkWasSwitched);
-    stSet_destruct(allReadIdsForHaplotypingHap1);
-    stSet_destruct(allReadIdsForHaplotypingHap2);
-
     bamChunker_destruct(bamChunker);
     params_destruct(params);
     if (regionStr != NULL) free(regionStr);
