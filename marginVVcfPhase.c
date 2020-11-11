@@ -383,6 +383,12 @@ int main(int argc, char *argv[]) {
                                                   NULL, NULL, reads, readsBelongingToHap1, readsBelongingToHap2, gf,
                                                   params);
 
+        // save
+        updateOriginalVcfEntriesWithBubbleData(bamChunk, reads, bamChunker->readEnumerator, gf, bg,
+                vcfEntriesToBubbles, readsBelongingToHap1, readsBelongingToHap2, logIdentifier);
+        updateOriginalVcfEntriesWithBubbleData(bamChunk, filteredReads, bamChunker->readEnumerator, gf, bg,
+                vcfEntriesToBubbles, readsBelongingToHap1, readsBelongingToHap2, logIdentifier);
+
         // Cleanup
         if (chunkVcfEntries != NULL) stList_destruct(chunkVcfEntries);
         stSet_destruct(readsBelongingToHap1);
@@ -410,10 +416,14 @@ int main(int argc, char *argv[]) {
     stList *allReadIdsHap1 = stList_construct3(0, free);
     stList *allReadIdsHap2 = stList_construct3(0, free);
 
+    // for writing vcf
+    bool *chunkWasSwitched = st_calloc(bamChunker->chunkCount, sizeof(bool));
+
     // merge chunks
     time_t mergeStartTime = time(NULL);
     st_logCritical("> Starting merge\n");
-    outputChunkers_stitchAndTrackReadIds(outputChunkers, TRUE, bamChunker->chunkCount, allReadIdsHap1, allReadIdsHap2);
+    outputChunkers_stitchAndTrackExtraData(outputChunkers, TRUE, bamChunker->chunkCount, allReadIdsHap1, allReadIdsHap2,
+            chunkWasSwitched);
     time_t mergeEndTime = time(NULL);
     char *tds = getTimeDescriptorFromSeconds((int) mergeEndTime - mergeStartTime);
     st_logCritical("> Merging took %s\n", tds);
@@ -426,17 +436,14 @@ int main(int argc, char *argv[]) {
     // maybe write final haplotyped bams
     time_t hapBamStart = time(NULL);
     st_logInfo("> Writing final haplotyped BAMs\n");
-
     stSet *allReadIdsForHaplotypingHap1 = stSet_construct3(stHash_stringKey, stHash_stringEqualKey, NULL);
     stSet *allReadIdsForHaplotypingHap2 = stSet_construct3(stHash_stringKey, stHash_stringEqualKey, NULL);
-
     for(int64_t i = 0; i < stList_length(allReadIdsHap1); i++) {
         stSet_insert(allReadIdsForHaplotypingHap1, stList_get(allReadIdsHap1, i));
     }
     for(int64_t i = 0; i < stList_length(allReadIdsHap2); i++) {
         stSet_insert(allReadIdsForHaplotypingHap2, stList_get(allReadIdsHap2, i));
     }
-
     // write it
     BamChunk *whbBamChunk = NULL;
     if (regionStr != NULL) {
@@ -455,14 +462,27 @@ int main(int argc, char *argv[]) {
     if (whbBamChunk != NULL) {
         bamChunk_destruct(whbBamChunk);
     }
-
     char *hapBamTDS = getTimeDescriptorFromSeconds(time(NULL) - hapBamStart);
     st_logCritical("> Wrote haplotyped bams in %s\n", hapBamTDS);
+    free(hapBamTDS);
+
+    // maybe write VCF
+    time_t vcfWriteStart = time(NULL);
+    char *outputVcfFile = stString_print("%s.phased.vcf", outputBase);
+    char *outputPhaseSetFile = stString_print("%s.phaseset.bed", outputBase);
+    st_logCritical("> Writing phased VCF to %s\n", outputVcfFile);
+    updateHaplotypeSwitchingInVcfEntries(bamChunker, chunkWasSwitched, vcfEntries);
+    writePhasedVcf(vcfFile, regionStr, outputVcfFile, outputPhaseSetFile, vcfEntries, params);
+    char *phasedVcfTDS = getTimeDescriptorFromSeconds(time(NULL) - vcfWriteStart);
+    st_logCritical("> Wrote phased VCF in %s\n", phasedVcfTDS);
+    free(phasedVcfTDS);
 
     // cleanup
+    free(outputVcfFile);
+    free(outputPhaseSetFile);
+    free(chunkWasSwitched);
     stSet_destruct(allReadIdsForHaplotypingHap1);
     stSet_destruct(allReadIdsForHaplotypingHap2);
-    free(hapBamTDS);
 
     bamChunker_destruct(bamChunker);
     params_destruct(params);

@@ -289,6 +289,9 @@ struct _stRPHmmParameters {
 	// ..then take variants sorted by qual until we hit that threshold. but not any variant below this threshold:
     double minVariantQuality;
 
+    // for output vcf
+    bool updateAllOutputVCFFormatFields;
+
 	// Number of iterations to search for bubbles (and remove bubbles with strand or read split below some threshold)
 	int64_t bubbleFindingIterations;
 
@@ -1364,6 +1367,9 @@ typedef struct _chunkToStitch {
     // Both these will be present if phasing
     stList *readsHap1Lines; // Reads from primary sequence
     stList *readsHap2Lines; // Reads from the secondary sequence
+
+    // For tracking which chunks were stitched
+    bool wasSwitched;
 } ChunkToStitch;
 
 ChunkToStitch *chunkToStitch_construct(char *seqName, int64_t chunkOrdinal, bool phased,
@@ -1390,8 +1396,8 @@ void outputChunkers_processChunkSequencePhased(OutputChunkers *outputChunkers, i
 											   stGenomeFragment *gF, Params *params);
 
 void outputChunkers_stitch(OutputChunkers *outputChunkers, bool phased, int64_t chunkCount);
-void outputChunkers_stitchAndTrackReadIds(OutputChunkers *outputChunkers, bool phased, int64_t chunkCount,
-										  stList *readIdsHap1, stList *readIdsHap2);
+void outputChunkers_stitchAndTrackExtraData(OutputChunkers *outputChunkers, bool phased, int64_t chunkCount,
+                                            stList *readIdsHap1, stList *readIdsHap2, bool* switchedState);
 
 void outputChunkers_stitchLinear(OutputChunkers *outputChunkers, bool phased, Params *params);
 
@@ -1413,15 +1419,22 @@ struct _vcfEntry {
     int64_t rawRefPosInformativeOnly;
     double quality;
     stList *alleles; //refAllele is alleles[0]
-    int64_t gt1;
-    int64_t gt2;
+    // used by margin, include expansion around alele
     stList *alleleSubstrings;
     int64_t refAlnStart;
     int64_t refAlnStopIncl;
     VcfEntry *rootVcfEntry;
+    // reports initial genotypes, updated after margin runs
+    int64_t gt1;
+    int64_t gt2;
+    // margin calculations
     stList *alleleIdxToReads;
+    double genotypeProb;
+    double haplotype1Prob;
+    double haplotype2Prob;
 };
 
+// vcf functions
 VcfEntry *vcfEntry_construct(char *refSeqName, int64_t refPos, int64_t rawRefPos, double phredQuality,
         stList *alleles, int64_t gt1, int64_t gt2);
 void vcfEntry_destruct(VcfEntry *vcfEntry);
@@ -1429,7 +1442,7 @@ RleString *getVcfEntryAlleleH1(VcfEntry *vcfEntry);
 RleString *getVcfEntryAlleleH2(VcfEntry *vcfEntry);
 stHash *parseVcf(char *vcfFile, Params *params);
 stHash *parseVcf2(char *vcfFile, char *regionStr, Params *params);
-int64_t binarySearchVcfListForFirstIndexAfterRefPos(stList *vcfEntries, int64_t refPos); // just exposed for testing
+int64_t binarySearchVcfListForFirstIndexAtOrAfterRefPos(stList *vcfEntries, int64_t refPos); // just exposed for testing
 stList *getVcfEntriesForRegion(stHash *vcfEntries, uint64_t *rleMap, char *refSeqName, int64_t startPos,
         int64_t endPos, Params *params);
 stList *getAlleleSubstrings2(VcfEntry *entry, char *referenceSeq, int64_t refSeqLen, int64_t *refStartPos,
@@ -1438,6 +1451,14 @@ stList *getAlleleSubstrings(VcfEntry *entry, RleString *referenceSeq, Params *pa
                             int64_t *refStartPos, int64_t *refEndPosIncl, bool refPosInPOASpace);
 void updateVcfEntriesWithSubstringsAndPositions(stList *vcfEntries, char *referenceSeq, int64_t refSeqLen,
         bool refPosInPOASpace, Params *params);
+void updateOriginalVcfEntriesWithBubbleData(BamChunk *bamChunk, stList *bamChunkReads, stHash *readIdToIdx,
+		stGenomeFragment *gF, BubbleGraph *bg, stList *chunkVcfEntriesToBubbles, stSet *hap1Reads, stSet *hap2Reads,
+		char *logIdentifier);
+void updateHaplotypeSwitchingInVcfEntries(BamChunker *chunker, bool *chunkWasSwitched, stHash *vcfEntryMap);
+void writePhasedVcf(char *inputVcfFile, char *regionStr, char *outputVcfFile, char *phaseSetBedFile,
+        stHash *vcfEntryMap, Params *params);
+
+// bubble functions using vcfs
 BubbleGraph *bubbleGraph_constructFromPoaAndVCF(Poa *poa, stList *bamChunkReads, stList *vcfEntries,
                                                 PolishParams *params, bool phasing);
 BubbleGraph *bubbleGraph_constructFromPoaAndVCFOnlyVCFAllele(Poa *poa, stList *bamChunkReads,
@@ -1460,6 +1481,7 @@ RleString *bamChunk_getReferenceSubstring(BamChunk *bamChunk, char *referenceFil
 uint64_t *getPaddedHaplotypeString(uint64_t *hap, stGenomeFragment *gf, BubbleGraph *bg, Params *params);
 stSet *bamChunkRead_to_readName(stSet *bamChunkReads);
 stList *copyListOfIntTuples(stList *toCopy);
+double fromLog(double theLog);
 double toPhred(double prob);
 double fromPhred(double phred);
 void writePhasedReadInfoJSON(BamChunk *bamChunk, stList *primaryReads, stList *primaryAlignments, stList *filteredReads,

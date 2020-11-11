@@ -13,6 +13,7 @@
 		"useVariantSelectionAdaptiveSampling": true,
 		"variantSelectionAdaptiveSamplingPrimaryThreshold": 20,
 		"variantSelectionAdaptiveSamplingDesiredBasepairsPerVariant": 2000,
-		"minVariantQuality": 10
+		"minVariantQuality": 10,
+		"updateAllOutputVCFFormatFields": true
 	}
 }

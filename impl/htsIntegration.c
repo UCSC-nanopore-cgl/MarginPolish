@@ -1313,7 +1313,7 @@ void writeHaplotaggedBam(BamChunk *bamChunk, char *inputBamLocation, char *outpu
         }
         r = sam_write1(out, bamHdr, aln);
     }
-    st_logInfo(" %s Separated reads with divisions: H1 %"PRId64", H2 %"PRId64", and H0 %"PRId64"\n", logIdentifier,
+    st_logCritical(" %s Separated reads with divisions: H1 %"PRId64", H2 %"PRId64", and H0 %"PRId64"\n", logIdentifier,
             h1Count, h2Count, h0Count);
 
     // Cleanup
@@ -1593,7 +1593,9 @@ uint32_t extractReadSubstringsAtVariantPositions(BamChunk *bamChunk, stList *vcf
 
         // for vcf tracking at local level
         // +1 because vcf->refPos is in 1-based space, and this reference position is in 0-based
-        int64_t nextVcfEntriesIndex = binarySearchVcfListForFirstIndexAfterRefPos(vcfEntries, alnStartPos - chunkOverlapStart + 1);
+        int64_t nextVcfEntriesIndex = binarySearchVcfListForFirstIndexAtOrAfterRefPos(vcfEntries,
+                                                                                      alnStartPos - chunkOverlapStart +
+                                                                                      1);
         if (nextVcfEntriesIndex == -1) continue; // all vcf entries are before this read's start
         stHash *currentVcfEntries = stHash_construct(); // current vcf entries to read start pos
         // the bcrves we will be populating with vcf substrings

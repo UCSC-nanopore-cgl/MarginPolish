@@ -926,8 +926,8 @@ int main(int argc, char *argv[]) {
     // merge chunks
     time_t mergeStartTime = time(NULL);
     st_logCritical("> Starting merge\n");
-    outputChunkers_stitchAndTrackReadIds(outputChunkers, diploid, bamChunker->chunkCount,
-            allReadIdsHap1, allReadIdsHap2);
+    outputChunkers_stitchAndTrackExtraData(outputChunkers, diploid, bamChunker->chunkCount,
+                                           allReadIdsHap1, allReadIdsHap2, NULL);
     time_t mergeEndTime = time(NULL);
     char *tds = getTimeDescriptorFromSeconds((int) mergeEndTime - mergeStartTime);
     st_logCritical("> Merging took %s\n", tds);

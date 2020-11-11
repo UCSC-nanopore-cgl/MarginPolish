@@ -22,17 +22,21 @@ VcfEntry *vcfEntry_construct(char *refSeqName, int64_t refPos, int64_t rawRefPos
     vcfEntry->alleleSubstrings = NULL;
     vcfEntry->refAlnStart = -1;
     vcfEntry->refAlnStopIncl = -1;
-    vcfEntry->alleleIdxToReads = stList_construct3(0, (void(*)(void*))stList_destruct);
+    vcfEntry->alleleIdxToReads = stList_construct3(0, (void(*)(void*))stSet_destruct);
     for (int i = 0; i < stList_length(vcfEntry->alleles); i++) {
-        stList_append(vcfEntry->alleleIdxToReads, stList_construct());
+        stList_append(vcfEntry->alleleIdxToReads, stSet_construct());
     }
     vcfEntry->rootVcfEntry = NULL;
+    vcfEntry->genotypeProb = -1.0;
+    vcfEntry->haplotype1Prob = -1.0;
+    vcfEntry->haplotype2Prob = -1.0;
     return vcfEntry;
 }
 
 void vcfEntry_destruct(VcfEntry *vcfEntry) {
     stList_destruct(vcfEntry->alleles);
     if (vcfEntry->alleleSubstrings != NULL) stList_destruct(vcfEntry->alleleSubstrings);
+    if (vcfEntry->alleleIdxToReads != NULL) stList_destruct(vcfEntry->alleleIdxToReads);
     free(vcfEntry->refSeqName);
     free(vcfEntry);
 }
@@ -147,14 +151,14 @@ stHash *parseVcf2(char *vcfFile, char *regionStr, Params *params) {
 
 
         // genotype
+        int gt1 = -1;
+        int gt2 = -1;
         int32_t *gt_arr = NULL, ngt_arr = 0;
         int ngt = bcf_get_genotypes(hdr, rec, &gt_arr, &ngt_arr);
-        if (ngt<=0 || bcf_gt_is_missing(gt_arr[0]) || gt_arr[1] == bcf_int32_vector_end) {
-            //todo
-            return NULL; // GT not present
+        if (ngt>0 && !bcf_gt_is_missing(gt_arr[0])  && gt_arr[1] != bcf_int32_vector_end) {
+            gt1 = bcf_gt_allele(gt_arr[0]);
+            gt2 = bcf_gt_allele(gt_arr[1]);
         }
-        int gt1 = bcf_gt_allele(gt_arr[0]);
-        int gt2 = bcf_gt_allele(gt_arr[1]);
         free(gt_arr);
         if (!params->phaseParams->includeHomozygousVCFEntries && gt1 == gt2) {
             skippedForHomozygous++;
@@ -222,24 +226,25 @@ stList *copyListOfRleStrings(stList *toCopy) {
     return copy;
 }
 
-int64_t binarySearchVcfListForFirstIndexAfterRefPos2(stList *vcfEntries, int64_t desiredEntryPos, int64_t startPos, int64_t endPosIncl) {
+int64_t binarySearchVcfListForFirstIndexAtOrAfterRefPos2(stList *vcfEntries, int64_t desiredEntryPos, int64_t startPos,
+                                                         int64_t endPosIncl) {
     if (endPosIncl - startPos == 1) {
         return ((VcfEntry*)stList_get(vcfEntries, startPos))->refPos >= desiredEntryPos ? startPos : endPosIncl;
     }
     int64_t middlePos = startPos + (endPosIncl - startPos) / 2;
     VcfEntry *middleEntry = stList_get(vcfEntries, middlePos);
     if (middleEntry->refPos < desiredEntryPos) {
-        return binarySearchVcfListForFirstIndexAfterRefPos2(vcfEntries, desiredEntryPos, middlePos, endPosIncl);
+        return binarySearchVcfListForFirstIndexAtOrAfterRefPos2(vcfEntries, desiredEntryPos, middlePos, endPosIncl);
     } else /*if (middleEntry->refPos >= desiredEntryPos)*/ {
-        return binarySearchVcfListForFirstIndexAfterRefPos2(vcfEntries, desiredEntryPos, startPos, middlePos);
+        return binarySearchVcfListForFirstIndexAtOrAfterRefPos2(vcfEntries, desiredEntryPos, startPos, middlePos);
     }
 
 }
-int64_t binarySearchVcfListForFirstIndexAfterRefPos(stList *vcfEntries, int64_t refPos) {
+int64_t binarySearchVcfListForFirstIndexAtOrAfterRefPos(stList *vcfEntries, int64_t refPos) {
     if (stList_length(vcfEntries) == 0) return -1;
     if (((VcfEntry*)stList_get(vcfEntries, stList_length(vcfEntries) - 1))->refPos < refPos) return -1;
     if (((VcfEntry*)stList_get(vcfEntries, 0))->refPos > refPos) return 0;
-    return binarySearchVcfListForFirstIndexAfterRefPos2(vcfEntries, refPos, 0, stList_length(vcfEntries) - 1);
+    return binarySearchVcfListForFirstIndexAtOrAfterRefPos2(vcfEntries, refPos, 0, stList_length(vcfEntries) - 1);
 }
 
 stList *getVcfEntriesForRegion(stHash *vcfEntryMap, uint64_t *rleMap, char *refSeqName, int64_t startPos,
@@ -258,7 +263,7 @@ stList *getVcfEntriesForRegion(stHash *vcfEntryMap, uint64_t *rleMap, char *refS
     stList *filteredEntries = stList_construct3(0, (void(*)(void*))vcfEntry_destruct);
 
     // binary search through list for start pos
-    int64_t startIdx = binarySearchVcfListForFirstIndexAfterRefPos(vcfEntries, startPos);
+    int64_t startIdx = binarySearchVcfListForFirstIndexAtOrAfterRefPos(vcfEntries, startPos);
     if (startIdx == -1) {
         return regionEntries;
     }
@@ -419,182 +424,572 @@ void updateVcfEntriesWithSubstringsAndPositions(stList *vcfEntries, char *refere
     }
 }
 
-//TODO
-/*BubbleGraph *updateOriginalVcfEntriesWithBubbleData(BamChunk *bamChunk, stList *bamChunkReads, stHash *readIdToIdx,
+
+stHash *buildVcfEntryToBamChunkReadMap(stList *bamChunkReads) {
+    // get hash of allele to list of substrings
+    stHash *vcfEntriesToReads = stHash_construct2(NULL, (void(*)(void*))stList_destruct);
+    for (int64_t i = 0; i < stList_length(bamChunkReads); i++) {
+        BamChunkRead *bcr = stList_get(bamChunkReads, i);
+        BamChunkReadVcfEntrySubstrings *bcrves = bcr->bamChunkReadVcfEntrySubstrings;
+        for (uint64_t j = 0; j < stList_length(bcrves->vcfEntries); j++) {
+            VcfEntry *vcfEntry = stList_get(bcrves->vcfEntries, j);
+
+            // save
+            stList *bcrList = stHash_search(vcfEntriesToReads, vcfEntry);
+            if (bcrList == NULL) {
+                bcrList = stList_construct();
+                stHash_insert(vcfEntriesToReads, vcfEntry, bcrList);
+            }
+            stList_append(bcrList, bcr);
+        }
+    }
+
+    return vcfEntriesToReads;
+}
+
+
+void updateOriginalVcfEntriesWithBubbleData(BamChunk *bamChunk, stList *bamChunkReads, stHash *readIdToIdx,
         stGenomeFragment *gF, BubbleGraph *bg, stList *chunkVcfEntriesToBubbles, stSet *hap1Reads, stSet *hap2Reads,
-        Params *params, char *logIdentifier) {
+        char *logIdentifier) {
 
     // prep
-    stHash *vcfEntryToReadSubstrings = buildVcfEntryToReadSubstringsMap(bamChunkReads, params);
+    stHash *vcfEntryToReads = buildVcfEntryToBamChunkReadMap(bamChunkReads);
 
-    // loop over all primary bubbles
+    // loop over all primary bubbles in the actual chunk boundaries
     for (uint64_t primaryBubbleIdx = 0; primaryBubbleIdx < gF->length; primaryBubbleIdx++) {
-
         // bubble and hap info
         Bubble *primaryBubble = &bg->bubbles[gF->refStart + primaryBubbleIdx];
         int64_t hap1AlleleNo = gF->haplotypeString1[primaryBubbleIdx];
         int64_t hap2AlleleNo = gF->haplotypeString2[primaryBubbleIdx];
+        // TODO these probs are in log space: convert to [0-1]
+        float genotypeProb = gF->genotypeProbs[primaryBubbleIdx];
+        float haplotype1Prob = gF->haplotypeProbs1[primaryBubbleIdx];
+        float haplotype2Prob = gF->haplotypeProbs2[primaryBubbleIdx];
 
+        // vcf data
         VcfEntry *chunkVcfEntry = stList_get(chunkVcfEntriesToBubbles, primaryBubbleIdx);
         VcfEntry *rootVcfEntry = chunkVcfEntry->rootVcfEntry;
+
+        // sanity checks
         assert(rootVcfEntry != NULL);
+        assert(stList_length(chunkVcfEntry->alleles) == primaryBubble->alleleNo);
 
-        char *hap1 = rleString_expand(primaryBubble->alleles[hap1AlleleNo]);
-        char *hap2 = rleString_expand(primaryBubble->alleles[hap2AlleleNo]);
-
-        // anchor positions
-        uint64_t refStart = primaryBubble->refStart;
-
-        // make allele list from primary haplotype alleles
-        stList *alleles = stList_construct3(0, free);
-        stList_append(alleles, rleString_expand(hap1));
-        stList_append(alleles, rleString_expand(hap2));
-
-        // get read substrings
-        stList *readSubstrings = stHash_search(vcfEntryToReadSubstrings, vcfEntry);
-
-        // nothing to phase with
-        if(stList_length(readSubstrings) == 0) {
-            stList_destruct(readSubstrings);
+        // not in chunk
+        if (rootVcfEntry->refPos < bamChunk->chunkStart || rootVcfEntry->refPos >= bamChunk->chunkEnd) {
             continue;
         }
 
-        Bubble *b = st_malloc(sizeof(Bubble)); // Make a bubble and add to list of bubbles
-        b->variantPositionOffsets = NULL;
+        // get read substrings
+        stList *entryBCRs = stHash_search(vcfEntryToReads, chunkVcfEntry);
 
-        // Set the coordinates
-        b->refStart = (uint64_t) refStart;
-
-        // The reference allele
-        b->refAllele = params->polishParams->useRunLengthEncoding ?
-                       rleString_construct(stList_get(vcfEntry->alleles, 0)) :
-                       rleString_construct_no_rle(stList_get(vcfEntry->alleles, 0));
-
-        // Add read substrings
-        b->readNo = (uint64_t) stList_length(readSubstrings);
-        b->reads = st_malloc(sizeof(BamChunkReadSubstring *) * b->readNo);
-        for (int64_t j = 0; j < b->readNo; j++) {
-            b->reads[j] = stList_pop(readSubstrings);
+        // nothing to phase with, make no updates
+        if (stList_length(entryBCRs) == 0) {
+            rootVcfEntry->gt1 = -1;
+            rootVcfEntry->gt2 = -1;
+            rootVcfEntry->genotypeProb = 0;
+            rootVcfEntry->haplotype1Prob = 0;
+            rootVcfEntry->haplotype2Prob = 0;
+            continue;
         }
 
-        // Now copy the alleles list to the bubble's array of alleles
-        b->alleleNo = (uint64_t) stList_length(alleles);
-        b->alleles = st_malloc(sizeof(RleString *) * b->alleleNo);
-        for (int64_t j = 0; j < b->alleleNo; j++) {
-            b->alleles[j] = params->polishParams->useRunLengthEncoding ?
-                            rleString_construct(stList_get(alleles, j)) : rleString_construct_no_rle(stList_get(alleles, j));
-        }
+        // update genotypes and probs
+        rootVcfEntry->gt1 = hap1AlleleNo;
+        rootVcfEntry->gt2 = hap2AlleleNo;
+        rootVcfEntry->genotypeProb = fromLog(genotypeProb);
+        rootVcfEntry->haplotype1Prob = fromLog(haplotype1Prob);
+        rootVcfEntry->haplotype2Prob = fromLog(haplotype2Prob);
 
-        // Get allele supports
-        b->alleleReadSupports = st_calloc(b->readNo * b->alleleNo, sizeof(float));
-
-        stList *anchorPairs = stList_construct(); // Currently empty
-
-        SymbolString alleleSymbolStrings[b->alleleNo];
-        for (int64_t j = 0; j < b->alleleNo; j++) {
-            alleleSymbolStrings[j] = rleString_constructSymbolString(b->alleles[j], 0,
-                                                                     b->alleles[j]->length,
-                                                                     params->polishParams->alphabet,
-                                                                     params->polishParams->useRepeatCountsInAlignment,
-                                                                     maximumRepeatLengthExcl);
-        }
-
-        // get alignment likelihoods
-        stHash *cachedScores = stHash_construct3(rleString_stringKey, rleString_expandedStringEqualKey,
-                                                 (void (*)(void *)) rleString_destruct, free);
-        for (int64_t k = 0; k < b->readNo; k++) {
-            RleString *readSubstring = bamChunkReadSubstring_getRleString(b->reads[k]);
-            SymbolString rS = rleString_constructSymbolString(readSubstring, 0, readSubstring->length,
-                                                              params->polishParams->alphabet,
-                                                              params->polishParams->useRepeatCountsInAlignment,
-                                                              maximumRepeatLengthExcl);
-            StateMachine *sM = b->reads[k]->read->forwardStrand
-                               ? params->polishParams->stateMachineForForwardStrandRead
-                               : params->polishParams->stateMachineForReverseStrandRead;
-
-            uint64_t *index = stHash_search(cachedScores, readSubstring);
-            if (index != NULL) {
-                for (int64_t j = 0; j < b->alleleNo; j++) {
-                    b->alleleReadSupports[j * b->readNo + k] = b->alleleReadSupports[j * b->readNo +
-                                                                                     *index];
-                }
-                rleString_destruct(readSubstring);
+        // update vcf read indices
+        int64_t unMatchedReads = 0;
+        stSet *hap1RootVcfEntryReadIndices = stList_get(rootVcfEntry->alleleIdxToReads, hap1AlleleNo);
+        stSet *hap2RootVcfEntryReadIndices = stList_get(rootVcfEntry->alleleIdxToReads, hap2AlleleNo);
+        for (int64_t i = 0; i < stList_length(entryBCRs); i++) {
+            BamChunkRead *bcr = stList_get(entryBCRs, i);
+            int64_t readIdx = (int64_t) stHash_search(readIdToIdx, bcr->readName);
+            assert(readIdx != 0);
+            if (stSet_search(hap1Reads, bcr) != NULL) {
+                stSet_insert(hap1RootVcfEntryReadIndices, (void*) readIdx);
+            } else if (stSet_search(hap2Reads, bcr) != NULL) {
+                stSet_insert(hap2RootVcfEntryReadIndices, (void*) readIdx);
             } else {
-                index = st_malloc(sizeof(uint64_t));
-                *index = (uint64_t) k;
-                stHash_insert(cachedScores, readSubstring, index);
-                for (int64_t j = 0; j < b->alleleNo; j++) {
-                    b->alleleReadSupports[j * b->readNo + k] =
-                            (float) computeForwardProbability(alleleSymbolStrings[j], rS, anchorPairs,
-                                                              params->polishParams->p, sM, 0, 0);
-                }
+                unMatchedReads++;
             }
-
-            symbolString_destruct(rS);
+        }
+        if (unMatchedReads == stList_length(entryBCRs)) {
+            st_logInfo(" %s No reads (out of %"PRId64") were aligned to VCF entry at pos %s:%"PRId64"\n",
+                    logIdentifier, unMatchedReads, rootVcfEntry->refSeqName, rootVcfEntry->rawRefPosInformativeOnly);
         }
 
-        // rank reads for each bubble
-        for (int64_t k = 0; k < b->readNo; k++) {
-            BamChunkReadSubstring *bcrss = b->reads[k];
-            BamChunkRead *bcr = bcrss->read;
-            float supportHap1 = b->alleleReadSupports[0 * b->readNo + k];
-            float supportHap2 = b->alleleReadSupports[1 * b->readNo + k];
-
-            double *currRS = stHash_search(totalReadScore_hap1, bcr);
-            *currRS += supportHap1 - stMath_logAddExact(supportHap1, supportHap2);
-            currRS = stHash_search(totalReadScore_hap2, bcr);
-            *currRS += supportHap2 - stMath_logAddExact(supportHap2, supportHap1);
-
-        }
-
-        // cleanup
-        stHash_destruct(cachedScores);
-        for (int64_t j = 0; j < b->alleleNo; j++) {
-            symbolString_destruct(alleleSymbolStrings[j]);
-        }
-        stList_destruct(anchorPairs);
-        stList_destruct(alleles);
-        bubble_destruct(*b);
-        free(b);
     }
 
-    // get scores and save to appropriate sets
-    double totalNoScoreVariantsSpanned = 0.0;
-    int64_t noScoreCount = 0;
-    int64_t unclassifiedCount = 0;
-    int64_t hap1Count = 0;
-    int64_t hap2Count = 0;
-    for (int i = 0; i < stList_length(bamChunkReads); i++) {
-        BamChunkRead *bcr = stList_get(bamChunkReads, i);
-        double *totalSupportH1 = stHash_search(totalReadScore_hap1, bcr);
-        double *totalSupportH2 = stHash_search(totalReadScore_hap2, bcr);
+    stHash_destruct(vcfEntryToReads);
+}
 
-        if (*totalSupportH1 > *totalSupportH2) {
-            stSet_insert(hap1Reads, bcr);
-            hap1Count++;
-        } else if (*totalSupportH2 > *totalSupportH1)  {
-            stSet_insert(hap2Reads, bcr);
-            hap2Count++;
-        } else {
-            if (*totalSupportH1 == 0) {
-                totalNoScoreVariantsSpanned += stList_length(bcr->bamChunkReadVcfEntrySubstrings->vcfEntries);
-                noScoreCount++;
+
+void updateHaplotypeSwitchingInVcfEntries(BamChunker *chunker, bool *chunkWasSwitched, stHash *vcfEntryMap) {
+    // trakcing
+    int64_t totalSwitchedVcfEntries = 0;
+    int64_t totalVcfEntries = 0;
+
+    // for iteration
+    char *currContig = NULL;
+    stList *currVcfEntries = NULL;
+    int64_t currVcfEntryIdx = 0;
+    for (int64_t i = 0; i < chunker->chunkCount; i++) {
+        BamChunk *chunk = stList_get(chunker->chunks, i);
+        if (currContig == NULL || !stString_eq(currContig, chunk->refSeqName)) {
+            currContig = chunk->refSeqName;
+            currVcfEntries = stHash_search(vcfEntryMap, currContig);
+            if (currVcfEntries == NULL) {
+                // no entries in vcf entry map, we can continue
+                continue;
             }
-            unclassifiedCount++;
+            currContig = chunk->refSeqName;
+            currVcfEntryIdx = binarySearchVcfListForFirstIndexAtOrAfterRefPos(currVcfEntries, chunk->chunkStart);
+            if (currVcfEntryIdx < 0) {
+                // no entries for this contig
+                currContig = NULL;
+                continue;
+            }
         }
+
+        VcfEntry *vcfEntry;
+        while (currVcfEntryIdx < stList_length(currVcfEntries) &&
+                (vcfEntry = stList_get(currVcfEntries, currVcfEntryIdx))->refPos < chunk->chunkEnd) {
+            if (vcfEntry->refPos < chunk->chunkStart) {
+                // should not happen
+                st_logInfo("  While switching haplotypes on VCF entries got entry starting before chunk (%s %"PRId64" < %"PRId64")\n",
+                           vcfEntry->refSeqName, vcfEntry->refPos, chunk->chunkStart);
+                currVcfEntryIdx++;
+                continue;
+            }
+
+            // update
+            if (chunkWasSwitched[i]) {
+                int64_t tmpi = vcfEntry->gt1;
+                vcfEntry->gt1 = vcfEntry->gt2;
+                vcfEntry->gt2 = tmpi;
+                float tmpf = vcfEntry->haplotype1Prob;
+                vcfEntry->haplotype1Prob = vcfEntry->haplotype2Prob;
+                vcfEntry->haplotype2Prob = tmpf;
+
+                totalSwitchedVcfEntries++;
+            }
+            totalVcfEntries++;
+            currVcfEntryIdx++;
+        }
+    }
+    st_logInfo("  Switched %"PRId64"/%"PRId64" (%.2f) VCF entry haplotypes after stitching\n",
+            totalSwitchedVcfEntries, totalVcfEntries, 1.0 * totalSwitchedVcfEntries / totalVcfEntries);
+}
+
+
+void writeUnphasedVariant(bcf_hdr_t *hdr, bcf1_t *rec, int32_t origGt1, int32_t origGt2) {
+    int32_t *tmpia = (int*)malloc(bcf_hdr_nsamples(hdr)*2*sizeof(int));
+    tmpia[0] = bcf_gt_unphased(origGt1);
+    tmpia[1] = bcf_gt_unphased(origGt2);
+    bcf_update_genotypes(hdr, rec, tmpia, 2);
+    free(tmpia);
+}
+
+void recordPhaseSet(int32_t phaseSet, VcfEntry *prevHetVcfEntry, stList *phaseSetLengths, FILE *phaseSetBedOut) {
+    if (phaseSet != -1 && prevHetVcfEntry != NULL) {
+        int64_t psLength = prevHetVcfEntry->refPos - phaseSet;
+        stList_append(phaseSetLengths, (void*) psLength);
+        if (phaseSetBedOut != NULL) {
+            fprintf(phaseSetBedOut, "%s\t%"PRId32"\t%"PRId64"\n", prevHetVcfEntry->refSeqName, phaseSet,
+                    prevHetVcfEntry->refPos);
+        }
+    }
+}
+
+int cmpint64(const void *I, const void *J) {
+    int64_t i = (int64_t) I;
+    int64_t j = (int64_t) J;
+    return i > j ? 1 : i < j ? -1 : 0;
+}
+
+void writePhasedVcf(char *inputVcfFile, char *regionStr, char *outputVcfFile, char *phaseSetBedFile,
+        stHash *vcfEntryMap, Params *params) {
+
+    //open files
+    htsFile *fpIn = hts_open(inputVcfFile,"rb");
+    if (fpIn == NULL) {
+        st_logCritical("Could not open input VCF for reading %s\n", inputVcfFile);
+        return;
+    }
+    htsFile *fpOut = hts_open(outputVcfFile, "w");
+    if (fpOut == NULL) {
+        st_logCritical("Could not open output VCF for writing %s\n", outputVcfFile);
+        return;
+    }
+    bool shouldWritePhaseSets = phaseSetBedFile == NULL;
+    FILE *phaseSetBedOut = shouldWritePhaseSets ? NULL : fopen(phaseSetBedFile, "w");
+    if (phaseSetBedOut == NULL && shouldWritePhaseSets) {
+        st_logCritical("Could not open phase set BED file for writing %s\n", phaseSetBedFile);
+        shouldWritePhaseSets = FALSE;
+    }
+
+    // region manage
+    char regionContig[128] = "";
+    int regionStart = 0;
+    int regionEnd = 0;
+    if (regionStr != NULL) {
+        int scanRet = sscanf(regionStr, "%[^:]:%d-%d", regionContig, &regionStart, &regionEnd);
+        if (scanRet != 3 && scanRet != 1) {
+            st_errAbort("Region in unexpected format (expected %%s:%%d-%%d or %%s)): %s", regionStr);
+        } else if (regionStart < 0 || regionEnd < 0 || regionEnd < regionStart) {
+            st_errAbort("Start and end locations in region must be positive, start must be less than end: %s", regionStr);
+        }
+        if (scanRet == 1) {
+            regionStart = -1;
+            regionEnd = -1;
+        }
+    }
+
+    //read header
+    bcf_hdr_t *hdr = bcf_hdr_read(fpIn);
+    int nsmpl = bcf_hdr_nsamples(hdr);
+    if (nsmpl > 1) {
+        st_logCritical("> Got %d samples reading %s, will only take VCF records for the first\n", nsmpl, inputVcfFile);
+    }
+
+    // ensure these are present
+    bcf_hdr_append(hdr, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">");
+    bcf_hdr_append(hdr, "##FORMAT=<ID=PS,Number=1,Type=Integer,Description=\"Phase Set Identifier\">");
+    if (params->phaseParams->updateAllOutputVCFFormatFields) {
+        bcf_hdr_append(hdr, "##FORMAT=<ID=GQ,Number=1,Type=Integer,Description=\"Genotype Quality\">");
+        bcf_hdr_append(hdr, "##FORMAT=<ID=DP,Number=1,Type=Integer,Description=\"Read Depth\">");
+        bcf_hdr_append(hdr, "##FORMAT=<ID=HQ,Number=2,Type=Integer,Description=\"Haplotype Quality\">");
+        bcf_hdr_append(hdr, "##FORMAT=<ID=HD,Number=2,Type=Integer,Description=\"Haplotype Depth\">");
+        bcf_hdr_append(hdr, "##FORMAT=<ID=HCPV,Number=2,Type=Integer,Description=\"Haplotype Concordance with Previous Variant\">");
+        bcf_hdr_append(hdr, "##FORMAT=<ID=HDPV,Number=2,Type=Integer,Description=\"Haplotype Discordance with Previous Variant\">");
+    }
+
+
+    // write header
+    bcf_hdr_write(fpOut, hdr);
+    bcf1_t *rec    = bcf_init();
+
+    // tracking total entries
+    int64_t totalEntries = 0;
+    int64_t totalPhasedWritten = 0;
+    int64_t skippedBecasueNotConsidered = 0;
+    int64_t notPhasedBecauseMarginCalledHomozygous = 0;
+    int64_t notPhasedBecauseMarginCalledHetDifferentFromInputVCF = 0;
+
+    // tracking vcf entries
+    VcfEntry *prevHetVcfEntry = NULL;
+    VcfEntry *currVcfEntry = NULL;
+    int32_t phaseSet = -1;
+    int64_t nextVcfEntryIdx = 0;
+    char *currChrom = NULL;
+    stList *currChromVcfEntries = NULL;
+
+    // phase set data
+    stList *phaseSetLengths = stList_construct();
+
+    // iterate
+    while ( bcf_read(fpIn, hdr, rec) >= 0 )
+    {
+        //unpack for read REF,ALT,INFO,etc
+        bcf_unpack(rec, BCF_UN_ALL);
+        totalEntries++;
+
+        // location data
+        const char *chrom = bcf_hdr_id2name(hdr, rec->rid);
+        int64_t pos = rec->pos;
+
+        // skipped cases
+        bool skipVariantAnalysis = FALSE;
+        if (regionStr != NULL && (!stString_eq(regionContig, chrom) || (regionStart >= 0 && !(regionStart <= pos && pos < regionEnd)))) {
+            skipVariantAnalysis = TRUE;
+        }
+        if (params->phaseParams->onlyUsePassVCFEntries && !bcf_has_filter(hdr, rec, "PASS")) {
+            skipVariantAnalysis = TRUE;
+        }
+        if (params->phaseParams->onlyUseSNPVCFEntries && !bcf_is_snp(rec)) {
+            skipVariantAnalysis = TRUE;
+        }
+
+        // genotype
+        int32_t origGt1 = -1;
+        int32_t origGt2 = -1;
+        int32_t *gt_arr = NULL, ngt_arr = 0;
+        int ngt = bcf_get_genotypes(hdr, rec, &gt_arr, &ngt_arr);
+        if (ngt>0 && !bcf_gt_is_missing(gt_arr[0])  && gt_arr[1] != bcf_int32_vector_end) {
+            origGt1 = bcf_gt_allele(gt_arr[0]);
+            origGt2 = bcf_gt_allele(gt_arr[1]);
+        }
+        free(gt_arr);
+        if (!params->phaseParams->includeHomozygousVCFEntries && origGt1 == origGt2) {
+            skipVariantAnalysis = TRUE;
+        }
+
+        // all skipped variants are written this way
+        if (skipVariantAnalysis) {
+            skippedBecasueNotConsidered++;
+            writeUnphasedVariant(hdr, rec, origGt1, origGt2);
+            continue;
+        }
+
+        // setup our vcf entries for new chrom
+        if (currChrom == NULL || !stString_eq(currChrom, chrom)) {
+            // handle phase set
+            recordPhaseSet(phaseSet, prevHetVcfEntry, phaseSetLengths, phaseSetBedOut);
+            // free old value
+            if (currChrom != NULL) free(currChrom);
+            // init chrom and entries
+            currChrom = stString_copy(chrom);
+            currChromVcfEntries = stHash_search(vcfEntryMap, currChrom);
+            assert(currChromVcfEntries != NULL);
+            // prep
+            prevHetVcfEntry = NULL;
+            currVcfEntry = NULL;
+            nextVcfEntryIdx = 0;
+            phaseSet = -1;
+        }
+
+        // find new current vcf entry
+        VcfEntry *nextVcfEntry = NULL;
+        int64_t skippedVcfEntries = 0;
+        while (nextVcfEntryIdx < stList_length(currChromVcfEntries)) {
+            nextVcfEntry = stList_get(currChromVcfEntries, nextVcfEntryIdx);
+            if (nextVcfEntry->refPos == pos) {
+                // found it
+                nextVcfEntryIdx++;
+                break;
+            } else if (nextVcfEntry->refPos > pos) {
+                //we have missed our variant, should not happen
+                nextVcfEntry = NULL;
+                break;
+            } else if (nextVcfEntry->refPos < pos) {
+                // we aren't at our variant yet, this should not happen
+                skippedVcfEntries++;
+            } else {
+                assert(FALSE);
+            }
+            nextVcfEntryIdx++;
+        }
+        // this is only error case where something unexpected has happened
+        if (skippedVcfEntries > 0) {
+            st_logCritical("  Skipped %"PRId64" considered VCF entries searching %ssuccessfully for entry at %s:%"PRId64"\n",
+                    skippedVcfEntries, nextVcfEntry == NULL ? "un":"", chrom, pos);
+        }
+
+        // handle case where we did not find this variant (bad)
+        if (nextVcfEntry == NULL) {
+            //loggit
+            if (nextVcfEntryIdx < stList_length(currChromVcfEntries)) {
+                nextVcfEntry = stList_get(currChromVcfEntries, nextVcfEntryIdx);
+            }
+            st_logCritical("  When writing VCF entries at %s:%"PRId64", did not find existing entry (prev %s:%"PRId64", next %s:%"PRId64")\n",
+                       chrom, pos, prevHetVcfEntry != NULL ? prevHetVcfEntry->refSeqName : "NULL",
+                       prevHetVcfEntry != NULL ? prevHetVcfEntry->refPos : -1, nextVcfEntry->refSeqName,
+                       nextVcfEntry->refPos);
+            // write variant
+            writeUnphasedVariant(hdr, rec, origGt1, origGt2);
+            continue;
+        }
+
+        // handle case where we found this variant, but it was for some reason filtered out (ok)
+        if (nextVcfEntry->genotypeProb == -1.0) {
+            skippedBecasueNotConsidered++;
+            writeUnphasedVariant(hdr, rec, origGt1, origGt2);
+            continue;
+        }
+
+        // iterate
+        if (currVcfEntry != NULL && currVcfEntry->gt1 != currVcfEntry->gt2) {
+            // prev must be het
+            prevHetVcfEntry = currVcfEntry;
+        }
+        currVcfEntry = nextVcfEntry;
+
+        // get variant data from margin analysis
+        // genotype
+        int gt1 = (int) currVcfEntry->gt1;
+        int gt2 = (int) currVcfEntry->gt2;
+        // probs
+        int32_t gtProb = (int32_t) toPhred(currVcfEntry->genotypeProb);
+        int32_t hp1Prob = (int32_t) toPhred(currVcfEntry->haplotype1Prob);
+        int32_t hp2Prob = (int32_t) toPhred(currVcfEntry->haplotype2Prob);
+        // depths
+        int32_t depth = 0;
+        int32_t hap1Depth = -1;
+        int32_t hap2Depth = -1;
+        for (int i = 0; i < stList_length(currVcfEntry->alleleIdxToReads); i++) {
+            int32_t hpDepth = (int32_t) stSet_size(stList_get(currVcfEntry->alleleIdxToReads, i));
+            depth += hpDepth;
+            if (i == gt1) hap1Depth = hpDepth;
+            if (i == gt2) hap2Depth = hpDepth;
+        }
+        // read concordancy with with previous het variant
+        int32_t hcpv1 = -1;
+        int32_t hcpv2 = -1;
+        int32_t hdpv1 = -1;
+        int32_t hdpv2 = -1;
+        bool determinedHetConcordancy = FALSE;
+        if (prevHetVcfEntry != NULL && gt1 != gt2 && prevHetVcfEntry->gt1 >= 0 && currVcfEntry->gt1 >= 0) {
+            stSet *prevH1 = stList_get(prevHetVcfEntry->alleleIdxToReads, prevHetVcfEntry->gt1);
+            stSet *prevH2 = stList_get(prevHetVcfEntry->alleleIdxToReads, prevHetVcfEntry->gt2);
+            stSet *currH1 = stList_get(currVcfEntry->alleleIdxToReads, currVcfEntry->gt1);
+            stSet *currH2 = stList_get(currVcfEntry->alleleIdxToReads, currVcfEntry->gt2);
+            hcpv1 = (int32_t) stSet_sizeOfIntersection(prevH1, currH1);
+            hcpv2 = (int32_t) stSet_sizeOfIntersection(prevH2, currH2);
+            hdpv1 = (int32_t) stSet_sizeOfIntersection(prevH2, currH1);
+            hdpv2 = (int32_t) stSet_sizeOfIntersection(prevH1, currH2);
+            determinedHetConcordancy = TRUE;
+        }
+
+        // new phase set consideration
+        bool newPhaseSet = FALSE;
+        if (prevHetVcfEntry == NULL) {
+            newPhaseSet = TRUE;
+            st_logInfo("  Calling new phase set at %s:%"PRId64" because no previous HET\n", chrom, pos);
+        } else if (determinedHetConcordancy && (hcpv1 == 0 || hcpv2 == 0)) {
+            newPhaseSet = TRUE;
+            st_logInfo("  Calling new phase set at %s:%"PRId64" because lacking concordancy (H1:%"PRId32", H2:%"PRId32")\n",
+                    chrom, pos, hcpv1, hcpv2);
+        } else if (determinedHetConcordancy && (hdpv1 + hdpv2 > hcpv1 + hcpv2)) {
+            newPhaseSet = TRUE;
+            st_logInfo("  Calling new phase set at %s:%"PRId64" because of discordancy (H1C:%"PRId32" + H2C:%"PRId32" <= H1D:%"PRId32" + H2D:%"PRId32")\n",
+                       chrom, pos, hcpv1, hcpv2, hdpv1, hdpv2);
+        }
+
+        if (newPhaseSet) {
+            recordPhaseSet(phaseSet, prevHetVcfEntry, phaseSetLengths, phaseSetBedOut);
+            phaseSet = (int32_t) pos;
+        }
+        bool writePhaseSet;
+        if (gt1 != gt2) {
+            writePhaseSet = TRUE;
+        } else {
+            writePhaseSet = FALSE;
+            notPhasedBecauseMarginCalledHomozygous++;
+        }
+        bool isPhased = !newPhaseSet && writePhaseSet;
+
+        // write values
+        int32_t *tmpia = (int*)malloc(bcf_hdr_nsamples(hdr)*2*sizeof(int));
+        if (params->phaseParams->updateAllOutputVCFFormatFields) {
+            // write everything, it is ok to clobber existing data
+            // write genotype
+            if (isPhased) {
+                tmpia[0] = gt1 < 0 ? bcf_gt_missing : bcf_gt_phased(gt1);
+                tmpia[1] = gt1 < 0 ? bcf_gt_missing : bcf_gt_phased(gt2);
+            } else {
+                tmpia[0] = gt1 < 0 ? bcf_gt_missing : bcf_gt_unphased(gt1);
+                tmpia[1] = gt1 < 0 ? bcf_gt_missing : bcf_gt_unphased(gt2);
+            }
+            bcf_update_genotypes(hdr, rec, tmpia, 2);
+            // write quality info
+            tmpia[0] = gtProb;
+            bcf_update_format_int32(hdr, rec, "GQ", tmpia, 1);
+            tmpia[0] = hp1Prob;
+            tmpia[1] = hp2Prob;
+            bcf_update_format_int32(hdr, rec, "HQ", tmpia, 2);
+            // write depth info
+            tmpia[0] = depth;
+            bcf_update_format_int32(hdr, rec, "DP", tmpia, 1);
+            tmpia[0] = hap1Depth;
+            tmpia[1] = hap2Depth;
+            bcf_update_format_int32(hdr, rec, "HD", tmpia, 2);
+            // write read concordancy (only makes sense with het variants)
+            if (gt1 != gt2) {
+                tmpia[0] = hcpv1;
+                tmpia[1] = hcpv2;
+                bcf_update_format_int32(hdr, rec, "HCPV", tmpia, 2);
+                tmpia[0] = hdpv1;
+                tmpia[1] = hdpv2;
+                bcf_update_format_int32(hdr, rec, "HDPV", tmpia, 2);
+            }
+        } else {
+            // only write gt and phase set, not ok to clobber existing data
+            // only update genotype (and phase set) if we match the called genotype
+            if ( !( (gt1 == origGt1 && gt2 == origGt2) || (gt1 == origGt2 && gt2 == origGt1) ) ) {
+                // we have not found the same genotypes as we originally got, phasing cannot be trusted
+                isPhased = FALSE;
+                writePhaseSet = FALSE;
+                if (gt1 != gt2) {
+                    notPhasedBecauseMarginCalledHetDifferentFromInputVCF++;
+                }
+            }
+
+            // write GT, either phased with MP or unphased
+            if (isPhased) {
+                tmpia[0] = bcf_gt_phased(gt1);
+                tmpia[1] = bcf_gt_phased(gt2);
+            } else {
+                tmpia[0] = bcf_gt_unphased(origGt1);
+                tmpia[1] = bcf_gt_unphased(origGt1);
+                assert(writePhaseSet == FALSE || newPhaseSet);
+            }
+            bcf_update_genotypes(hdr, rec, tmpia, 2);
+        }
+
+        // only update phase set on hets called by margin
+        if (writePhaseSet) {
+            tmpia[0] = phaseSet;
+            bcf_update_format_int32(hdr, rec, "PS", tmpia, 1);
+            totalPhasedWritten++;
+        }
+
+        // save it
+        bcf_write(fpOut, hdr, rec);
+        free(tmpia);
     }
 
     // loggit
-    int64_t length = stList_length(bamChunkReads);
-    st_logInfo(" %s Of %"PRId64" filtered reads: %"PRId64" (%.2f) were hap1, %"PRId64" (%.2f) were hap2, %"PRId64" (%.2f) were unclassified with %"PRId64" (%.2f) having no score (avg spanned variants %.2f).\n",
-               logIdentifier, length, hap1Count, 1.0*hap1Count/length, hap2Count, 1.0*hap2Count/length,
-               unclassifiedCount, 1.0*unclassifiedCount/length, noScoreCount,
-               1.0*noScoreCount/(unclassifiedCount == 0 ? 1 : unclassifiedCount),
-               totalNoScoreVariantsSpanned / (noScoreCount == 0 ? 1 : noScoreCount));
+    if (params->phaseParams->updateAllOutputVCFFormatFields) {
+        st_logCritical("  Wrote %"PRId64" variants: %"PRId64" were phased; skipped %"PRId64" for not being analyzed, %"PRId64" for being homozygous\n",
+                totalEntries, totalPhasedWritten, skippedBecasueNotConsidered, notPhasedBecauseMarginCalledHomozygous);
+    } else {
+        st_logCritical("  Wrote %"PRId64" variants: %"PRId64" were phased; skipped %"PRId64" for not being analyzed, %"PRId64" for being homozygous, %"PRId64" for disagreement with margin\n",
+                       totalEntries, totalPhasedWritten, skippedBecasueNotConsidered,
+                       notPhasedBecauseMarginCalledHomozygous, notPhasedBecauseMarginCalledHetDifferentFromInputVCF);
+    }
+
+    // finish phase sets
+    recordPhaseSet(phaseSet, prevHetVcfEntry, phaseSetLengths, phaseSetBedOut);
+    stList_sort(phaseSetLengths, cmpint64);
+    int64_t minPhaseSetLen = INT64_MAX;
+    int64_t maxPhaseSetLen = 0;
+    int64_t totalPhaseSetLength = 0;
+    for (int64_t i = 0; i < stList_length(phaseSetLengths); i++) {
+        int64_t psLen = (int64_t) stList_get(phaseSetLengths, i);
+        totalPhaseSetLength += psLen;
+        minPhaseSetLen = psLen < minPhaseSetLen ? psLen : minPhaseSetLen;
+        maxPhaseSetLen = maxPhaseSetLen < psLen ? psLen : maxPhaseSetLen;
+    }
+    int64_t avgPhaseSetLen = totalPhaseSetLength / stList_length(phaseSetLengths);
+    int64_t n50PhaseSetLen = 0;
+    int64_t n50tmp = 0;
+    for (int64_t i = 0; i < stList_length(phaseSetLengths); i++) {
+        int64_t psLen = (int64_t) stList_get(phaseSetLengths, i);
+        n50tmp += psLen;
+        if (n50tmp > totalPhaseSetLength / 2) {
+            n50PhaseSetLen = psLen;
+            break;
+        }
+    }
+    st_logCritical("  Identified %"PRId64" phase sets with lengths avg:%"PRId64", min:%"PRId64", max:%"PRId64", N50:%"PRId64"\n",
+            stList_length(phaseSetLengths), avgPhaseSetLen, minPhaseSetLen, maxPhaseSetLen, n50PhaseSetLen);
 
 
-    // other cleanup
-    stHash_destruct(totalReadScore_hap1);
-    stHash_destruct(totalReadScore_hap2);
-    stHash_destruct(vcfEntryToReadSubstrings);
-}*/
+    // cleanup
+    if (currChrom != NULL) free(currChrom);
+    stList_destruct(phaseSetLengths);
+    bcf_destroy(rec);
+    bcf_hdr_destroy(hdr);
+    int ret;
+    if ( (ret=hts_close(fpIn)) ) {
+        st_logCritical("  Failed to close input VCF %s with code %d!\n", inputVcfFile, ret);
+    }
+    if ( (ret=hts_close(fpOut)) ) {
+        st_logCritical("  Failed to close output VCF %s with code %d!\n", outputVcfFile, ret);
+    }
+    if (phaseSetBedOut != NULL) {
+        fclose(phaseSetBedOut);
+    }
+}

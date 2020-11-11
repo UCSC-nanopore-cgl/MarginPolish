@@ -320,7 +320,7 @@ void test_vcfBinarySearchForVcfEntryStartIdx(CuTest *testCase) {
             }
         }
 
-        int64_t queryIdx = binarySearchVcfListForFirstIndexAfterRefPos(vcfEntries, desiredRefPos);
+        int64_t queryIdx = binarySearchVcfListForFirstIndexAtOrAfterRefPos(vcfEntries, desiredRefPos);
 
         if (queryIdx != correctIdx) {
             CuAssertTrue(testCase, queryIdx == correctIdx);

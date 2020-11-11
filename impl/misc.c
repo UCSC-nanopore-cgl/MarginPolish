@@ -132,8 +132,12 @@ stList *copyListOfIntTuples(stList *toCopy) {
     return copy;
 }
 
+double fromLog(double theLog) {
+    return pow(10.0, theLog);
+}
+
 double toPhred(double prob) {
-    return -10 * log10(prob);
+    return -10 * log10(prob <= 0.1 ? 0.000001 : prob >= 0.999999 ? 0.999999 : prob);
 }
 
 double fromPhred(double phred) {

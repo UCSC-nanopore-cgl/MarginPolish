@@ -1766,6 +1766,7 @@ BubbleGraph *bubbleGraph_partitionFilteredReadsFromVcfEntries(stList *bamChunkRe
         // nothing to phase with
         if(stList_length(readSubstrings) == 0) {
             stList_destruct(readSubstrings);
+            stList_destruct(alleles);
             continue;
         }
 

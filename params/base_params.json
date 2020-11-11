@@ -88,6 +88,7 @@
           "variantSelectionAdaptiveSamplingPrimaryThreshold": 10,
           "variantSelectionAdaptiveSamplingDesiredBasepairsPerVariant": 1000,
           "minVariantQuality": 0,
+          "updateAllOutputVCFFormatFields": true,
           "bubbleFindingIterations": 1,
           "bubbleMinBinomialStrandLikelihood": 0.1,
           "bubbleMinBinomialReadSplitLikelihood": 0.1

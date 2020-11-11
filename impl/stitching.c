@@ -20,6 +20,7 @@ ChunkToStitch *chunkToStitch_construct(char *seqName, int64_t chunkOrdinal, bool
     ChunkToStitch *chunk = calloc(1, sizeof(ChunkToStitch));
     chunk->seqName = seqName;
     chunk->chunkOrdinal = chunkOrdinal;
+    chunk->wasSwitched = FALSE;
     if (phased) {
         chunk->readsHap1Lines = stList_construct3(0, free);
         chunk->readsHap2Lines = stList_construct3(0, free);
@@ -348,18 +349,19 @@ void chunkToStitch_phaseAdjacentChunks(ChunkToStitch *chunk, stHash *readsInHap1
     stHash *chunkHap2Reads = getReadNames(chunk->readsHap2Lines);
 
     // Calculate the intersection between reads shared between the chunks
-    int64_t i = params->phaseParams->stitchWithPrimaryReadsOnly ?
+    int64_t cisH1 = params->phaseParams->stitchWithPrimaryReadsOnly ?
             sizeOfIntersectionWithNonNegativeValues(readsInHap1, chunkHap1Reads) : sizeOfIntersection(readsInHap1, chunkHap1Reads);
-    int64_t j = params->phaseParams->stitchWithPrimaryReadsOnly ?
-            sizeOfIntersectionWithNonNegativeValues(readsInHap1, chunkHap2Reads) : sizeOfIntersection(readsInHap1, chunkHap2Reads);
-    int64_t k = params->phaseParams->stitchWithPrimaryReadsOnly ?
-            sizeOfIntersectionWithNonNegativeValues(readsInHap2, chunkHap1Reads) : sizeOfIntersection(readsInHap2, chunkHap1Reads);
-    int64_t l = params->phaseParams->stitchWithPrimaryReadsOnly ?
+    int64_t cisH2 = params->phaseParams->stitchWithPrimaryReadsOnly ?
             sizeOfIntersectionWithNonNegativeValues(readsInHap2, chunkHap2Reads) : sizeOfIntersection(readsInHap2, chunkHap2Reads);
+    int64_t transH1 = params->phaseParams->stitchWithPrimaryReadsOnly ?
+            sizeOfIntersectionWithNonNegativeValues(readsInHap2, chunkHap1Reads) : sizeOfIntersection(readsInHap2, chunkHap1Reads);
+    int64_t transH2 = params->phaseParams->stitchWithPrimaryReadsOnly ?
+            sizeOfIntersectionWithNonNegativeValues(readsInHap1, chunkHap2Reads) : sizeOfIntersection(readsInHap1, chunkHap2Reads);
 
     // Calculate support for the cis (keeping the current relative phasing) and the trans (switching the phasing) configurations
-    int64_t cisPhase = i + l; // Number of reads consistently phased in cis configuration
-    int64_t transPhase = j + k; // Number of reads consistently phased in trans configuration
+    int64_t cisPhase = cisH1 + cisH2; // Number of reads consistently phased in cis configuration
+    int64_t transPhase = transH2 + transH1; // Number of reads consistently phased in trans configuration
+    int64_t total = cisPhase + transPhase;
 
     // Log the support for the phasing
     char *logIdentifier = getLogIdentifier();
@@ -367,13 +369,11 @@ void chunkToStitch_phaseAdjacentChunks(ChunkToStitch *chunk, stHash *readsInHap1
                PRIi64 " hap1 and %" PRIi64 " hap2 reads\n",
                logIdentifier, chunk->chunkOrdinal, stHash_size(chunkHap1Reads), stHash_size(chunkHap2Reads));
     st_logInfo(
-            " %s Support for phasing cis-configuration,   Total: %" PRIi64 " (%f), %" PRIi64 " (%f%%) in h11-h21 intersection, %" PRIi64 " (%f%%) in h12-h22 intersection\n",
-            logIdentifier, i + l, (double) (i + l) / (double) (i + j + k + l), i, (double) i / (double) (i + j), l,
-            (double) l / (double) (i + j));
+            " %s Support for phasing cis-configuration,   Total: %" PRIi64 " (%f), %" PRIi64 " (%f) in h1 intersection, %" PRIi64 " (%f) in h2 intersection\n",
+            logIdentifier, cisPhase, 1.0 * cisPhase / total, cisH1, 1.0 * cisH1 / (cisH1 + transH2), cisH2, 1.0 * cisH2 / (cisH2 + transH2));
     st_logInfo(
-            " %s Support for phasing trans-configuration, Total: %" PRIi64 " (%f), %" PRIi64 " (%f%%) in h11-h22 intersection, %" PRIi64 " (%f%%) in h12-h21 intersection\n",
-            logIdentifier, j + k, (double) (j + k) / (double) (i + j + k + l), j, (double) j / (double) (k + l), k,
-            (double) k / (double) (k + l));
+            " %s Support for phasing trans-configuration, Total: %" PRIi64 " (%f), %" PRIi64 " (%f) in h1 intersection, %" PRIi64 " (%f) in h2 intersection\n",
+            logIdentifier, transPhase, 1.0 * transPhase / total, transH1, 1.0 * transH1 / (transH1 + cisH1), transH2, 1.0 * transH2 / (transH2 + cisH2));
 
     // Switch the relative phasing if the trans phase configuration has more support
     if (cisPhase < transPhase) {
@@ -383,6 +383,7 @@ void chunkToStitch_phaseAdjacentChunks(ChunkToStitch *chunk, stHash *readsInHap1
         swap((void *) &chunk->readsHap1Lines, (void *) &chunk->readsHap2Lines);
         swap((void *) &chunk->repeatCountLinesHap1, (void *) &chunk->repeatCountLinesHap2);
         swap((void *) &chunkHap1Reads, (void *) &chunkHap2Reads);
+        chunk->wasSwitched = TRUE;
     }
 
     //Remove duplicated reads from output
@@ -1453,9 +1454,6 @@ ChunkToStitch *mergeContigChunkz(ChunkToStitch **chunks, int64_t startIdx, int64
             updateStitchingChunk(stitched, pChunk, hap1Seqs, hap2Seqs, phased, trackPoa, trackRepeatCounts);
         }
 
-        // cleanup
-        chunkToStitch_destruct(pChunk);
-
         // Set the new pChunk
         pChunk = chunk;
     }
@@ -1474,7 +1472,6 @@ ChunkToStitch *mergeContigChunkz(ChunkToStitch **chunks, int64_t startIdx, int64
     }
 
     // cleanup
-    chunkToStitch_destruct(pChunk);
     if (trackSequence) stList_destruct(hap1Seqs);
     if (phased) {
         stList_destruct(hap2Seqs);
@@ -1512,21 +1509,42 @@ ChunkToStitch *mergeContigChunkzThreaded(ChunkToStitch **chunks, int64_t startId
         int64_t threadedEndIdxExclusive = threadedStartIdx + chunksPerThread;
         if (endIdxExclusive < threadedEndIdxExclusive) threadedEndIdxExclusive = endIdxExclusive;
 
+        // merge for this thread
         outputChunks[thread] = mergeContigChunkz(chunks, threadedStartIdx, threadedEndIdxExclusive, phased, params);
     }
 
     // finish
     ChunkToStitch *stitched = mergeContigChunkz(outputChunks, 0, numThreads, phased, params);
-    free(outputChunks); //chunks are freed in mergeCC
+
+    // update stitching in original chunks
+    #pragma omp parallel for schedule(static,1)
+    for (int64_t thread = 0; thread < numThreads; thread++) {
+        int64_t threadedStartIdx = startIdx + chunksPerThread * thread;
+        int64_t threadedEndIdxExclusive = threadedStartIdx + chunksPerThread;
+        if (endIdxExclusive < threadedEndIdxExclusive) threadedEndIdxExclusive = endIdxExclusive;
+
+        // potentially update all switching
+        if (outputChunks[thread]->wasSwitched) {
+            for (int64_t i = threadedStartIdx; i < threadedEndIdxExclusive; i++) {
+                chunks[i]->wasSwitched = !chunks[i]->wasSwitched;
+            }
+        }
+
+        // cleanup
+        chunkToStitch_destruct(outputChunks[thread]);
+    }
+
+    // cleanup
+    free(outputChunks); //these chunks were freed after switching
     return stitched;
 }
 
 
 void outputChunkers_stitch(OutputChunkers *outputChunkers, bool phased, int64_t chunkCount) {
-    outputChunkers_stitchAndTrackReadIds(outputChunkers, phased, chunkCount, NULL, NULL);
+    outputChunkers_stitchAndTrackExtraData(outputChunkers, phased, chunkCount, NULL, NULL, NULL);
 }
-void outputChunkers_stitchAndTrackReadIds(OutputChunkers *outputChunkers, bool phased, int64_t chunkCount,
-        stList *readIdsHap1, stList *readIdsHap2) {
+void outputChunkers_stitchAndTrackExtraData(OutputChunkers *outputChunkers, bool phased, int64_t chunkCount,
+                                            stList *readIdsHap1, stList *readIdsHap2, bool* switchedState) {
 
     // prep for merge
     assert(chunkCount > 0);
@@ -1633,6 +1651,25 @@ void outputChunkers_stitchAndTrackReadIds(OutputChunkers *outputChunkers, bool p
             }
         }
         // nothing to do otherwise, just wait until end or new contig
+    }
+
+    // cleanup and potentially track switched state
+    int64_t numThreads = outputChunkers->noOfOutputChunkers;
+    int64_t chunksPerThread = (int64_t) ceil(1.0 * chunkCount / numThreads);
+    while (chunksPerThread * (numThreads - 1) >= chunkCount) {numThreads--;}
+    #pragma omp parallel for schedule(static,1)
+    for (int64_t thread = 0; thread < numThreads; thread++) {
+        int64_t threadedStartIdx = chunksPerThread * thread;
+        int64_t threadedEndIdxExclusive = threadedStartIdx + chunksPerThread;
+        if (chunkCount < threadedEndIdxExclusive) threadedEndIdxExclusive = chunkCount;
+
+        // merge for this thread
+        for (int64_t i = threadedStartIdx; i < threadedEndIdxExclusive; i++) {
+            if (switchedState != NULL) {
+                switchedState[i] = chunks[i]->wasSwitched;
+            }
+            chunkToStitch_destruct(chunks[i]);
+        }
     }
 
     // cleanup
