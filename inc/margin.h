@@ -292,6 +292,9 @@ struct _stRPHmmParameters {
     // for output vcf
     bool updateAllOutputVCFFormatFields;
 
+    // likelihood at which we start a new phase set give read concordance
+    double phasesetMinBinomialReadSplitLikelihood;
+
 	// Number of iterations to search for bubbles (and remove bubbles with strand or read split below some threshold)
 	int64_t bubbleFindingIterations;
 

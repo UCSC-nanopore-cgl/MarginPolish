@@ -40,6 +40,7 @@ stRPHmmParameters *stRPHmmParameters_construct() {
     params->variantSelectionAdaptiveSamplingDesiredBasepairsPerVariant = 1000;
     params->minVariantQuality = 0.15;
     params->updateAllOutputVCFFormatFields = TRUE;
+    params->phasesetMinBinomialReadSplitLikelihood = .01;
     params->bubbleFindingIterations = 1;
     params->bubbleMinBinomialStrandLikelihood = .05;
     params->bubbleMinBinomialReadSplitLikelihood = .05;
@@ -76,6 +77,7 @@ stRPHmmParameters *stRPHmmParameters_copy(stRPHmmParameters *toCopy) {
     params->variantSelectionAdaptiveSamplingDesiredBasepairsPerVariant = toCopy->variantSelectionAdaptiveSamplingDesiredBasepairsPerVariant;
     params->minVariantQuality = toCopy->minVariantQuality;
     params->updateAllOutputVCFFormatFields = toCopy->updateAllOutputVCFFormatFields;
+    params->phasesetMinBinomialReadSplitLikelihood = toCopy->phasesetMinBinomialReadSplitLikelihood;
     params->bubbleFindingIterations = toCopy->bubbleFindingIterations;
     params->bubbleMinBinomialStrandLikelihood = toCopy->bubbleMinBinomialStrandLikelihood;
     params->bubbleMinBinomialReadSplitLikelihood = toCopy->bubbleMinBinomialReadSplitLikelihood;
@@ -131,6 +133,8 @@ void stRPHmmParameters_parseParametersFromJson(stRPHmmParameters *params, char *
             params->minVariantQuality = stJson_parseFloat(js, tokens, ++i);
         } else if (strcmp(keyString, "updateAllOutputVCFFormatFields") == 0) {
             params->updateAllOutputVCFFormatFields = stJson_parseBool(js, tokens, ++i);
+        } else if (strcmp(keyString, "phasesetMinBinomialReadSplitLikelihood") == 0) {
+            params->phasesetMinBinomialReadSplitLikelihood = stJson_parseFloat(js, tokens, ++i);
         } else if (strcmp(keyString, "bubbleFindingIterations") == 0) {
             params->bubbleFindingIterations = stJson_parseInt(js, tokens, ++i);
         } else if (strcmp(keyString, "bubbleMinBinomialStrandLikelihood") == 0) {
