@@ -592,13 +592,13 @@ void writeUnphasedVariant(bcf_hdr_t *hdr, bcf1_t *rec, int32_t origGt1, int32_t 
     free(tmpia);
 }
 
-void recordPhaseSet(int32_t phaseSet, VcfEntry *prevHetVcfEntry, stList *phaseSetLengths, FILE *phaseSetBedOut) {
+void recordPhaseSet(int32_t phaseSet, VcfEntry *prevHetVcfEntry, stList *phaseSetLengths, char *reasonStr, FILE *phaseSetBedOut) {
     if (phaseSet != -1 && prevHetVcfEntry != NULL) {
         int64_t psLength = prevHetVcfEntry->refPos - phaseSet;
         stList_append(phaseSetLengths, (void*) psLength);
         if (phaseSetBedOut != NULL) {
-            fprintf(phaseSetBedOut, "%s\t%"PRId32"\t%"PRId64"\n", prevHetVcfEntry->refSeqName, phaseSet,
-                    prevHetVcfEntry->refPos);
+            fprintf(phaseSetBedOut, "%s\t%"PRId32"\t%"PRId64"\t%s\n", prevHetVcfEntry->refSeqName, phaseSet,
+                    prevHetVcfEntry->refPos, reasonStr);
         }
     }
 }
@@ -623,11 +623,9 @@ void writePhasedVcf(char *inputVcfFile, char *regionStr, char *outputVcfFile, ch
         st_logCritical("Could not open output VCF for writing %s\n", outputVcfFile);
         return;
     }
-    bool shouldWritePhaseSets = phaseSetBedFile == NULL;
-    FILE *phaseSetBedOut = shouldWritePhaseSets ? NULL : fopen(phaseSetBedFile, "w");
-    if (phaseSetBedOut == NULL && shouldWritePhaseSets) {
+    FILE *phaseSetBedOut = phaseSetBedFile == NULL ? NULL : fopen(phaseSetBedFile, "w");
+    if (phaseSetBedOut == NULL && phaseSetBedFile != NULL) {
         st_logCritical("Could not open phase set BED file for writing %s\n", phaseSetBedFile);
-        shouldWritePhaseSets = FALSE;
     }
 
     // region manage
@@ -736,7 +734,7 @@ void writePhasedVcf(char *inputVcfFile, char *regionStr, char *outputVcfFile, ch
         // setup our vcf entries for new chrom
         if (currChrom == NULL || !stString_eq(currChrom, chrom)) {
             // handle phase set
-            recordPhaseSet(phaseSet, prevHetVcfEntry, phaseSetLengths, phaseSetBedOut);
+            recordPhaseSet(phaseSet, prevHetVcfEntry, phaseSetLengths, "ContigEnd\t", phaseSetBedOut);
             // free old value
             if (currChrom != NULL) free(currChrom);
             // init chrom and entries
@@ -844,27 +842,35 @@ void writePhasedVcf(char *inputVcfFile, char *regionStr, char *outputVcfFile, ch
 
         // new phase set consideration
         bool newPhaseSet = FALSE;
+        char *newPhaseSetReason = NULL;
         if (prevHetVcfEntry == NULL) {
             newPhaseSet = TRUE;
             st_logInfo("  Calling new phase set at %s:%"PRId64" because no previous HET\n", chrom, pos);
+            newPhaseSetReason = stString_print("NoHet\t");
         } else if (determinedHetConcordancy) {
-            if (hcpv1 == 0 || hcpv2 == 0) {
+            //TODO switched to AND not OR for primary phasing detection
+            if (hcpv1 == 0 && hcpv2 == 0) {
                 newPhaseSet = TRUE;
                 st_logInfo("  Calling new phase set at %s:%"PRId64" because missing concordancy (H1:%"PRId32", H2:%"PRId32")\n",
                         chrom, pos, hcpv1, hcpv2);
+                newPhaseSetReason = stString_print("MissingConcordancy\tH1-%"PRId32"_H2-%"PRId32, hcpv1, hcpv2);
             } else if (binomialPValue(hcpv1 + hcpv2, hcpv1) < params->phaseParams->phasesetMinBinomialReadSplitLikelihood) {
                 newPhaseSet = TRUE;
                 st_logInfo("  Calling new phase set at %s:%"PRId64" because unlikely concordancy (H1:%"PRId32", H2:%"PRId32", prob:%.8f)\n",
                         chrom, pos, hcpv1, hcpv2, binomialPValue(hcpv1 + hcpv2, hcpv1));
+                newPhaseSetReason = stString_print("UnlikelyConcordancy\tH1-%"PRId32"_H2-%"PRId32"_Prob-%.8f", hcpv1, hcpv2, binomialPValue(hcpv1 + hcpv2, hcpv1));
             } else if (1.0 * (hdpv1 + hdpv2) / (hcpv1 + hcpv2 + hdpv1 + hdpv2) > params->phaseParams->phasesetMaxDiscordantRatio) {
                 newPhaseSet = TRUE;
                 st_logInfo("  Calling new phase set at %s:%"PRId64" because of discordancy (H1D:%"PRId32"+H2D:%"PRId32" / H1C:%"PRId32"+H2C:%"PRId32"+H1D:%"PRId32"+H2D:%"PRId32" = %.4f)\n",
                         chrom, pos, hdpv1, hdpv2, hcpv1, hcpv2, hdpv1, hdpv2, 1.0 * (hdpv1 + hdpv2) / (hcpv1 + hcpv2 + hdpv1 + hdpv2));
+                newPhaseSetReason = stString_print("Discordancy\tH1D-%"PRId32"_H2D-%"PRId32"_H1C-%"PRId32"_H2C-%"PRId32"_ratio-%.4f",
+                        hcpv1, hcpv2, hdpv1, hdpv2, 1.0 * (hdpv1 + hdpv2) / (hcpv1 + hcpv2 + hdpv1 + hdpv2));
             }
         }
 
         if (newPhaseSet) {
-            recordPhaseSet(phaseSet, prevHetVcfEntry, phaseSetLengths, phaseSetBedOut);
+            recordPhaseSet(phaseSet, prevHetVcfEntry, phaseSetLengths, newPhaseSetReason, phaseSetBedOut);
+            free(newPhaseSetReason);
             phaseSet = (int32_t) pos;
         }
         bool writePhaseSet;
@@ -957,7 +963,7 @@ void writePhasedVcf(char *inputVcfFile, char *regionStr, char *outputVcfFile, ch
     }
 
     // finish phase sets
-    recordPhaseSet(phaseSet, prevHetVcfEntry, phaseSetLengths, phaseSetBedOut);
+    recordPhaseSet(phaseSet, prevHetVcfEntry, phaseSetLengths, "ContigEnd\t", phaseSetBedOut);
     stList_sort(phaseSetLengths, cmpint64);
     int64_t minPhaseSetLen = INT64_MAX;
     int64_t maxPhaseSetLen = 0;

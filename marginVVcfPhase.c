@@ -406,8 +406,9 @@ int main(int argc, char *argv[]) {
         // save
         updateOriginalVcfEntriesWithBubbleData(bamChunk, reads, bamChunker->readEnumerator, gf, bg,
                 vcfEntriesToBubbles, readsBelongingToHap1, readsBelongingToHap2, logIdentifier);
-        updateOriginalVcfEntriesWithBubbleData(bamChunk, filteredReads, bamChunker->readEnumerator, gf, bg,
-                vcfEntriesToBubbles, readsBelongingToHap1, readsBelongingToHap2, logIdentifier);
+        //TODO trying to only phase VCF with primary reads
+        //updateOriginalVcfEntriesWithBubbleData(bamChunk, filteredReads, bamChunker->readEnumerator, gf, bg,
+        //        vcfEntriesToBubbles, readsBelongingToHap1, readsBelongingToHap2, logIdentifier);
 
         // Cleanup
         if (chunkVcfEntries != NULL) stList_destruct(chunkVcfEntries);

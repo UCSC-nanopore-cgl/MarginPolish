@@ -89,8 +89,8 @@
           "variantSelectionAdaptiveSamplingDesiredBasepairsPerVariant": 1000,
           "minVariantQuality": 0,
           "updateAllOutputVCFFormatFields": true,
-          "phasesetMinBinomialReadSplitLikelihood": 0.0001,
-          "phasesetMaxDiscordantRatio": 0.1,
+          "phasesetMinBinomialReadSplitLikelihood": 0.01,
+          "phasesetMaxDiscordantRatio": 0.25,
           "bubbleFindingIterations": 1,
           "bubbleMinBinomialStrandLikelihood": 0.05,
           "bubbleMinBinomialReadSplitLikelihood": 0.05
