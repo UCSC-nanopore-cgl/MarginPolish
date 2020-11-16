@@ -243,7 +243,7 @@ int64_t binarySearchVcfListForFirstIndexAtOrAfterRefPos2(stList *vcfEntries, int
 int64_t binarySearchVcfListForFirstIndexAtOrAfterRefPos(stList *vcfEntries, int64_t refPos) {
     if (stList_length(vcfEntries) == 0) return -1;
     if (((VcfEntry*)stList_get(vcfEntries, stList_length(vcfEntries) - 1))->refPos < refPos) return -1;
-    if (((VcfEntry*)stList_get(vcfEntries, 0))->refPos > refPos) return 0;
+    if (((VcfEntry*)stList_get(vcfEntries, 0))->refPos >= refPos) return 0;
     return binarySearchVcfListForFirstIndexAtOrAfterRefPos2(vcfEntries, refPos, 0, stList_length(vcfEntries) - 1);
 }
 
