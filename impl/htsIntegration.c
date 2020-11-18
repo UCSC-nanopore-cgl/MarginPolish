@@ -133,17 +133,19 @@ int64_t getReadDepthInfoBucketSize(int64_t chunkSize) {
     return depth;
 }
 
-int64_t getEstimatedChunkDepth(stList *chunkDepths, int64_t contigStartPos, int64_t contigEndPos, int64_t chunkSize) {
+int64_t getEstimatedChunkDepth(stList *chunkDepths, int64_t contigStartPos, int64_t contigEndPosExcl, int64_t chunkSize) {
     if (chunkDepths == NULL) return 0;
     int64_t bucketSize = getReadDepthInfoBucketSize(chunkSize);
     contigStartPos = contigStartPos/bucketSize;
-    contigEndPos = contigEndPos/bucketSize;
-    assert(stList_length(chunkDepths) > contigEndPos);
+    contigEndPosExcl = contigEndPosExcl/bucketSize;
+    if (contigEndPosExcl > stList_length(chunkDepths)) {
+        contigEndPosExcl = stList_length(chunkDepths);
+    }
     int64_t totalSize = 0;
-    for (int64_t pos = contigStartPos; pos < contigEndPos; pos++) {
+    for (int64_t pos = contigStartPos; pos < contigEndPosExcl; pos++) {
         totalSize += (int64_t) stList_get(chunkDepths, pos);
     }
-    int64_t chunkLength = contigEndPos - contigStartPos;
+    int64_t chunkLength = contigEndPosExcl - contigStartPos;
     if (chunkLength <= 0) chunkLength = 1;
     int64_t estimatedDepth = totalSize / chunkLength;
     return estimatedDepth;
