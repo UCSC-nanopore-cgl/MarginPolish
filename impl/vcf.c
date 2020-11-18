@@ -843,7 +843,7 @@ void writePhasedVcf(char *inputVcfFile, char *regionStr, char *outputVcfFile, ch
         // new phase set consideration
         bool newPhaseSet = FALSE;
         char *newPhaseSetReason = NULL;
-        if (prevHetVcfEntry == NULL) {
+        if (gt1 != gt2 && prevHetVcfEntry == NULL) {
             newPhaseSet = TRUE;
             st_logInfo("  Calling new phase set at %s:%"PRId64" because no previous HET\n", chrom, pos);
             newPhaseSetReason = stString_print("NoHet\t");
