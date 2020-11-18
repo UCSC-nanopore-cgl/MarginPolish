@@ -326,6 +326,7 @@ endif ()
 # MISC
 add_library(son ${SONLIB_SOURCES})
 add_library(lpsolve ${LP_SOURCES})
+target_link_libraries(lpsolve -lm -ldl)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DYY_NEVER_INTERACTIVE -DPARSER_LP -DINVERSE_ACTIVE=INVERSE_LUSOL -DRoleIsExternalInvEngine ")
 
 # HTSLIB
