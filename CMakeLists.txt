@@ -368,6 +368,9 @@ target_link_libraries(marginVVcfPhase marginLib)
 add_executable(marginBamTag tools/marginBamTag.c)
 target_link_libraries(marginBamTag marginLib)
 
+add_executable(runLengthMatrix tools/runLengthMatrix.c)
+target_link_libraries(runLengthMatrix marginLib)
+
 enable_testing()
 
 if (HDF5_FOUND)
