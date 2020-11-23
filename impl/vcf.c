@@ -584,11 +584,12 @@ void updateHaplotypeSwitchingInVcfEntries(BamChunker *chunker, bool *chunkWasSwi
 }
 
 
-void writeUnphasedVariant(bcf_hdr_t *hdr, bcf1_t *rec, int32_t origGt1, int32_t origGt2) {
+void writeUnphasedVariant(htsFile *fpOut, bcf_hdr_t *hdr, bcf1_t *rec, int32_t origGt1, int32_t origGt2) {
     int32_t *tmpia = (int*)malloc(bcf_hdr_nsamples(hdr)*2*sizeof(int));
     tmpia[0] = bcf_gt_unphased(origGt1);
     tmpia[1] = bcf_gt_unphased(origGt2);
     bcf_update_genotypes(hdr, rec, tmpia, 2);
+    bcf_write(fpOut, hdr, rec);
     free(tmpia);
 }
 
@@ -727,7 +728,7 @@ void writePhasedVcf(char *inputVcfFile, char *regionStr, char *outputVcfFile, ch
         // all skipped variants are written this way
         if (skipVariantAnalysis) {
             skippedBecasueNotConsidered++;
-            writeUnphasedVariant(hdr, rec, origGt1, origGt2);
+            writeUnphasedVariant(fpOut, hdr, rec, origGt1, origGt2);
             continue;
         }
 
@@ -786,14 +787,14 @@ void writePhasedVcf(char *inputVcfFile, char *regionStr, char *outputVcfFile, ch
                        prevHetVcfEntry != NULL ? prevHetVcfEntry->refPos : -1, nextVcfEntry->refSeqName,
                        nextVcfEntry->refPos);
             // write variant
-            writeUnphasedVariant(hdr, rec, origGt1, origGt2);
+            writeUnphasedVariant(fpOut, hdr, rec, origGt1, origGt2);
             continue;
         }
 
         // handle case where we found this variant, but it was for some reason filtered out (ok)
         if (nextVcfEntry->genotypeProb == -1.0) {
             skippedBecasueNotConsidered++;
-            writeUnphasedVariant(hdr, rec, origGt1, origGt2);
+            writeUnphasedVariant(fpOut, hdr, rec, origGt1, origGt2);
             continue;
         }
 
