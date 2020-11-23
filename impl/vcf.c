@@ -881,14 +881,13 @@ void writePhasedVcf(char *inputVcfFile, char *regionStr, char *outputVcfFile, ch
             writePhaseSet = FALSE;
             notPhasedBecauseMarginCalledHomozygous++;
         }
-        bool isPhased = !newPhaseSet && writePhaseSet;
 
         // write values
         int32_t *tmpia = (int*)malloc(bcf_hdr_nsamples(hdr)*2*sizeof(int));
         if (params->phaseParams->updateAllOutputVCFFormatFields) {
             // write everything, it is ok to clobber existing data
             // write genotype
-            if (isPhased) {
+            if (writePhaseSet) {
                 tmpia[0] = gt1 < 0 ? bcf_gt_missing : bcf_gt_phased(gt1);
                 tmpia[1] = gt1 < 0 ? bcf_gt_missing : bcf_gt_phased(gt2);
             } else {
@@ -922,7 +921,6 @@ void writePhasedVcf(char *inputVcfFile, char *regionStr, char *outputVcfFile, ch
             // only update genotype (and phase set) if we match the called genotype
             if ( !( (gt1 == origGt1 && gt2 == origGt2) || (gt1 == origGt2 && gt2 == origGt1) ) ) {
                 // we have not found the same genotypes as we originally got, phasing cannot be trusted
-                isPhased = FALSE;
                 writePhaseSet = FALSE;
                 if (gt1 != gt2) {
                     notPhasedBecauseMarginCalledHetDifferentFromInputVCF++;
@@ -930,13 +928,12 @@ void writePhasedVcf(char *inputVcfFile, char *regionStr, char *outputVcfFile, ch
             }
 
             // write GT, either phased with MP or unphased
-            if (isPhased) {
+            if (writePhaseSet) {
                 tmpia[0] = bcf_gt_phased(gt1);
                 tmpia[1] = bcf_gt_phased(gt2);
             } else {
                 tmpia[0] = bcf_gt_unphased(origGt1);
                 tmpia[1] = bcf_gt_unphased(origGt1);
-                assert(writePhaseSet == FALSE || newPhaseSet);
             }
             bcf_update_genotypes(hdr, rec, tmpia, 2);
         }

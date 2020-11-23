@@ -168,7 +168,7 @@ int main(int argc, char *argv[]) {
     if (access(referenceFastaFile, R_OK) != 0) {
         st_errAbort("Could not read from reference fastafile: %s\n", referenceFastaFile);
     }
-    if (access(paramsFile, R_OK) != 0) {
+    if (access(vcfFile, R_OK) != 0) {
         st_errAbort("Could not read from vcf file: %s\n", vcfFile);
     }
     if (access(paramsFile, R_OK) != 0) {
