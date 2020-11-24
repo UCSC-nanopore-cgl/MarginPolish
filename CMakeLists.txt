@@ -10,8 +10,8 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O0 -std=gnu99 -D_GNU_SOURCE -D_XOPEN_SOURCE
 project(marginPhase LANGUAGES C)
 
 # configure a header file to pass some of the CMake settings
-set(POLISH_VERSION_MAJOR 1)
-set(POLISH_VERSION_MINOR 3)
+set(MARGIN_VERSION_MAJOR 1)
+set(MARGIN_VERSION_MINOR 3)
 execute_process(
         COMMAND git log -1 --format=%h
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}

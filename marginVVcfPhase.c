@@ -141,7 +141,7 @@ int phase_main(int argc, char *argv[]) {
             shouldOutputPhasedVcf = FALSE;
             break;
         default:
-            usage();
+            phase_usage();
             free(outputBase);
             free(logLevelString);
             free(bamInFile);
