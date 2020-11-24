@@ -22,8 +22,8 @@
  * Main functions
  */
 
-void usage() {
-    fprintf(stderr, "usage: marginPolish <BAM_FILE> <ASSEMBLY_FASTA> <PARAMS> [options]\n");
+void polish_usage() {
+    fprintf(stderr, "usage: margin polish <BAM_FILE> <ASSEMBLY_FASTA> <PARAMS> [options]\n");
     fprintf(stderr, "Version: %s \n\n", MARGIN_POLISH_VERSION_H);
     fprintf(stderr, "Polishes the ASSEMBLY_FASTA using alignments in BAM_FILE.\n");
 
@@ -84,7 +84,7 @@ void usage() {
 }
 
 
-int main(int argc, char *argv[]) {
+int polish_main(int argc, char *argv[]) {
 
     // Parameters / arguments
     char *logLevelString = stString_copy("critical");
@@ -124,7 +124,7 @@ int main(int argc, char *argv[]) {
     if (argc < 4) {
         free(outputBase);
         free(logLevelString);
-        usage();
+        polish_usage();
         return 0;
     }
 
@@ -177,7 +177,7 @@ int main(int argc, char *argv[]) {
             logLevelString = stString_copy(optarg);
             break;
         case 'h':
-            usage();
+            polish_usage();
             return 0;
         case 'o':
             free(outputBase);

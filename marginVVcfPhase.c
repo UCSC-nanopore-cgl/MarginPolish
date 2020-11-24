@@ -22,8 +22,8 @@
  * Main functions
  */
 
-void usage() {
-    fprintf(stderr, "usage: marginVVcfPhase <ALIGN_BAM> <REFERENCE_FASTA> <VARIANT_VCF> <PARAMS> [options]\n");
+void phase_usage() {
+    fprintf(stderr, "usage: margin phase <ALIGN_BAM> <REFERENCE_FASTA> <VARIANT_VCF> <PARAMS> [options]\n");
     fprintf(stderr, "Version: %s \n\n", MARGIN_POLISH_VERSION_H);
     fprintf(stderr, "Tags reads in ALIGN_BAM using variants in VARIANT_VCF.\n");
 
@@ -53,7 +53,7 @@ void usage() {
 }
 
 
-int main(int argc, char *argv[]) {
+int phase_main(int argc, char *argv[]) {
 
     // Parameters / arguments
     char *logLevelString = stString_copy("critical");
@@ -72,7 +72,7 @@ int main(int argc, char *argv[]) {
     if (argc < 4) {
         free(outputBase);
         free(logLevelString);
-        usage();
+        phase_usage();
         return 0;
     }
 
@@ -110,7 +110,7 @@ int main(int argc, char *argv[]) {
             logLevelString = stString_copy(optarg);
             break;
         case 'h':
-            usage();
+            phase_usage();
             return 0;
         case 'o':
             free(outputBase);

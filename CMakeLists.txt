@@ -359,14 +359,11 @@ endif ()
 ######### EXECUTABLES #########
 ###############################
 
-add_executable(marginPolish marginPolish.c)
-target_link_libraries(marginPolish marginLib)
+add_executable(margin margin.c marginPolish.c marginVVcfPhase.c)
+target_link_libraries(margin marginLib)
 
-add_executable(marginVVcfPhase marginVVcfPhase.c)
-target_link_libraries(marginVVcfPhase marginLib)
-
-add_executable(marginBamTag tools/marginBamTag.c)
-target_link_libraries(marginBamTag marginLib)
+add_executable(tagBam tools/marginBamTag.c)
+target_link_libraries(tagBam marginLib)
 
 add_executable(runLengthMatrix tools/runLengthMatrix.c)
 target_link_libraries(runLengthMatrix marginLib)
