@@ -933,7 +933,7 @@ void writePhasedVcf(char *inputVcfFile, char *regionStr, char *outputVcfFile, ch
                 tmpia[1] = bcf_gt_phased(gt2);
             } else {
                 tmpia[0] = bcf_gt_unphased(origGt1);
-                tmpia[1] = bcf_gt_unphased(origGt1);
+                tmpia[1] = bcf_gt_unphased(origGt2);
             }
             bcf_update_genotypes(hdr, rec, tmpia, 2);
         }
