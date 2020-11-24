@@ -39,7 +39,7 @@ int64_t polishingFeatureTest(char *bamFile, char *referenceFile, char *paramsFil
     char *featureTruthCmd =
             featureTruth == NULL ? stString_copy("") : stString_print("--trueReferenceBam %s", featureTruth);
     char *featureTypeCmd = featureType == NULL ? stString_copy("-f") : stString_print("-F %s", featureType);
-    char *command = stString_print("./marginPolish %s %s %s --outputBase %s %s %s %s",
+    char *command = stString_print("./margin polish %s %s %s --outputBase %s %s %s %s",
                                    bamFile, referenceFile, paramsFile, outputName, logString, featureTypeCmd,
                                    featureTruthCmd);
     st_logInfo("> Running command: %s\n", command);
@@ -249,41 +249,6 @@ void test_channelRleWeightIndex(CuTest *testCase) {
 }
 
 
-void test_diploidRleWeightIndex(CuTest *testCase) {
-
-    int idx;
-    int maxRunLength = POAFEATURE_DIPLOID_MAX_RUN_LENGTH_DEFAULT;
-    int maxIndex = ((SYMBOL_NUMBER - 1) * (1 + maxRunLength) + 1) * 2;
-    PoaFeatureDiploidRleWeight *feature = PoaFeature_DiploidRleWeight_construct(0, 0, 0, maxRunLength);
-
-    for (int64_t c = 0; c < SYMBOL_NUMBER - 1; c++) {
-        for (int64_t l = 0; l <= maxRunLength; l++) {
-            idx = PoaFeature_DiploidRleWeight_charIndex(maxRunLength, (Symbol) c, l, TRUE);
-            CuAssertTrue(testCase, idx < maxIndex);
-            feature->weightsHOn[idx] += 1;
-
-            idx = PoaFeature_DiploidRleWeight_charIndex(maxRunLength, (Symbol) c, l, FALSE);
-            CuAssertTrue(testCase, idx < maxIndex);
-            feature->weightsHOn[idx] += 1;
-        }
-    }
-
-    idx = PoaFeature_DiploidRleWeight_gapIndex(maxRunLength, TRUE);
-    CuAssertTrue(testCase, idx < maxIndex);
-    feature->weightsHOn[idx] += 1;
-
-    idx = PoaFeature_DiploidRleWeight_gapIndex(maxRunLength, FALSE);
-    CuAssertTrue(testCase, idx < maxIndex);
-    feature->weightsHOn[idx] += 1;
-
-    for (int64_t i = 0; i < maxIndex; i++) {
-        if (feature->weightsHOn[i] != 1) {
-            CuAssertTrue(testCase, feature->weightsHOn[i] == 1);
-        }
-    }
-
-    PoaFeature_DiploidRleWeight_destruct(feature);
-}
 
 
 
@@ -341,7 +306,6 @@ CuSuite* featureTestSuite(void) {
     SUITE_ADD_TEST(suite, test_simpleWeightIndex);
     SUITE_ADD_TEST(suite, test_splitRleWeightIndex);
     SUITE_ADD_TEST(suite, test_channelRleWeightIndex);
-    SUITE_ADD_TEST(suite, test_diploidRleWeightIndex);
     SUITE_ADD_TEST(suite, test_defaultFeatureGeneration);
     SUITE_ADD_TEST(suite, test_simpleWeightFeatureGeneration);
     SUITE_ADD_TEST(suite, test_splitRleWeightFeatureGeneration);

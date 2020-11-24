@@ -62,8 +62,8 @@ void polish_usage() {
     fprintf(stderr, "                                 simpleWeight:     weighted likelihood from POA nodes (non-RLE)\n");
     fprintf(stderr, "                                 diploidRleWeight: [default] produces diploid features \n");
     fprintf(stderr, "    -L --splitRleWeightMaxRL : max run length (for RLE feature types) \n");
-    fprintf(stderr, "                                 [split default = %d, channel default = %d, diploid default = %d]\n",
-            POAFEATURE_SPLIT_MAX_RUN_LENGTH_DEFAULT, POAFEATURE_CHANNEL_MAX_RUN_LENGTH_DEFAULT, POAFEATURE_DIPLOID_MAX_RUN_LENGTH_DEFAULT);
+    fprintf(stderr, "                                 [split default = %d, channel default = %d]\n",
+            POAFEATURE_SPLIT_MAX_RUN_LENGTH_DEFAULT, POAFEATURE_CHANNEL_MAX_RUN_LENGTH_DEFAULT);
     fprintf(stderr, "    -u --trueReferenceBam    : true reference aligned to ASSEMBLY_FASTA, for HELEN\n");
     fprintf(stderr, "                               features.  Setting this parameter will include labels\n");
     fprintf(stderr, "                               in output.  If -2/--diploid is set, this parameter must\n");
@@ -199,11 +199,9 @@ int polish_main(int argc, char *argv[]) {
                 helenFeatureType = HFEAT_SPLIT_RLE_WEIGHT;
             } else if (stString_eqcase(optarg, "channelRleWeight") || stString_eqcase(optarg, "channel")) {
                 helenFeatureType = HFEAT_CHANNEL_RLE_WEIGHT;
-            } else if (stString_eqcase(optarg, "diploidRleWeight") || stString_eqcase(optarg, "diploid")) {
-                helenFeatureType = HFEAT_DIPLOID_RLE_WEIGHT;
             } else {
                 fprintf(stderr, "Unrecognized featureType for HELEN: %s\n\n", optarg);
-                usage();
+                polish_usage();
                 return 1;
             }
             break;
@@ -271,7 +269,7 @@ int polish_main(int argc, char *argv[]) {
             onlyUseVCFAlleles = TRUE;
             break;
         default:
-            usage();
+            polish_usage();
             free(outputBase);
             free(logLevelString);
             free(bamInFile);
@@ -333,7 +331,7 @@ int polish_main(int argc, char *argv[]) {
 
     // feature init
     if (helenFeatureType == HFEAT_NONE && setDefaultHelenFeature) {
-        helenFeatureType = diploid ? HFEAT_DIPLOID_RLE_WEIGHT : HFEAT_SPLIT_RLE_WEIGHT;
+        helenFeatureType = HFEAT_SPLIT_RLE_WEIGHT;
     }
     if (helenFeatureType != HFEAT_NONE && splitWeightMaxRunLength == 0) {
         switch (helenFeatureType) {
@@ -342,9 +340,6 @@ int polish_main(int argc, char *argv[]) {
                 break;
             case HFEAT_CHANNEL_RLE_WEIGHT:
                 splitWeightMaxRunLength = POAFEATURE_CHANNEL_MAX_RUN_LENGTH_DEFAULT;
-                break;
-            case HFEAT_DIPLOID_RLE_WEIGHT:
-                splitWeightMaxRunLength = POAFEATURE_DIPLOID_MAX_RUN_LENGTH_DEFAULT;
                 break;
             default:
                 break;

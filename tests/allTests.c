@@ -17,8 +17,6 @@ CuSuite *viewTestSuite(void);
 
 CuSuite *chunkingTestSuite(void);
 
-CuSuite *callConsensusTestSuite(void);
-
 CuSuite *featureTestSuite(void);
 
 CuSuite *marginIntegrationTestSuite(void);

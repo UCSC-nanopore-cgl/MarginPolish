@@ -24,7 +24,7 @@ marginIntegrationTest(char *bamFile, char *referenceFile, char *paramsFile, char
     char *outputPoaCsvString = outputPoaCsv ? "--outputPoaCsv" : "";
     char *outputReadPhasingCsvString = outputReadPhasingCsv ? "--outputHaplotypeReads" : "";
     char *inMemoryBuffersString = inMemoryBuffers ? "" : "--tempFilesToDisk";
-    char *command = stString_print("./marginPolish %s %s %s %s %s %s %s %s %s %s --outputBase %s",
+    char *command = stString_print("./margin polish %s %s %s %s %s %s %s %s %s %s --outputBase %s",
                                    bamFile, referenceFile, paramsFile, regionStr, logString, diploidString,
                                    outputRepeatCountsString, outputPoaCsvString, outputReadPhasingCsvString,
                                    inMemoryBuffersString, base);

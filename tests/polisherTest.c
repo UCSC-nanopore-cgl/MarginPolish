@@ -976,7 +976,7 @@ int64_t polishingTest(char *bamFile, char *referenceFile, char *paramsFile, char
     char *logString = verbose ? "--logLevel DEBUG" : "--logLevel INFO";
     char *regionStr = region == NULL ? stString_print("") : stString_print("--region %s", region);
     char *diploidString = diploid ? "--diploid" : "";
-    char *command = stString_print("./marginPolish %s %s %s %s %s %s", bamFile, referenceFile, paramsFile, regionStr,
+    char *command = stString_print("./margin polish %s %s %s %s %s %s", bamFile, referenceFile, paramsFile, regionStr,
                                    logString, diploidString);
     st_logInfo("> Running command: %s\n", command);
 
